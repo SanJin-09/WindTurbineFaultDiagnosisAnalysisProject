@@ -4,7 +4,7 @@ config包含所有配置参数
 谨慎更改!!
 """
 # 文件路径
-SCADA_DATA_PATH = 'scada_data.csv'
+SCADA_DATA_PATH = '../data/scada_data.csv'
 FAULT_DATA_PATH = 'fault_data.csv'
 
 # 数据预处理参数
