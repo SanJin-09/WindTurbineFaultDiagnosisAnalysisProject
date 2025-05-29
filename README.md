@@ -4,6 +4,7 @@
 **Team member：WU Xinyan, SUN Runze**
 ## Project Description
 _This project focuses on developing a big data analytics solution for wind turbine fault diagnosis by leveraging SCADA (Supervisory Control and Data Acquisition) system data. The goal is to predict and classify turbine faults (e.g., gearbox failure, bearing faults) using machine learning models trained on sensor data (temperature, vibration, rotational speed, etc.)._\
+\
 **Key Components:**
 + **Data Preprocessing:** Cleans and aligns SCADA data with fault timestamps.
 + **Feature Engineering:** Extracts time-domain, frequency-domain (FFT), and statistical features.
