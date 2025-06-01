@@ -1,4 +1,4 @@
-# Wind Turbine Fault Diagnosis Analysis prject
+# Wind Turbine Fault Diagnosis Analysis project
 **Big Data coursework report**\
 \
 **Team member：WU Xinyan, SUN Runze**
@@ -18,7 +18,7 @@ Align the timestamps of the datasets and extract sensor data before/after the fa
 2. **Data feature engineering.**\
 Extract time domain, frequency domain or statistical features (mean, variance, maximum/minimum value, FFT, etc.).
 3. **Fault classification model training.**\
-Training multiple fault identification models: _Random Forest, Gradient Boosting, XGBoost, Neural Networks_.
+Training multiple fault identification models: _Random Forest, Gradient Boosting, Neural Networks_.
 4. **Model performance evaluation and analysis.**\
 Use metrics (accuracy, recall, F1 score) to evaluate model performance.\
 Analyze the impact of different sensors on fault types.
