@@ -28,43 +28,51 @@ def load_data():
 def preprocess_data(scada_data, fault_data):
     print("\n正在进行数据预处理...")
 
-    # 1. 处理时间格式 - 创建或保留DateTime列
     scada_data = scada_data.copy()  # 创建副本以避免修改原始数据
+    fault_data = fault_data.copy()
 
     # 检查是否已有DateTime列
     if 'DateTime' not in scada_data.columns:
+        print("SCADA数据中未找到DateTime列，尝试创建...")
         try:
             # 尝试将第一列解析为日期时间
-            scada_data['DateTime'] = pd.to_datetime(scada_data.iloc[:, 0], format='%m/%d/%Y %H:%M', errors='coerce')
-        except:
-            try:
-                scada_data['DateTime'] = pd.to_datetime(scada_data.iloc[:, 0], errors='coerce')
-            except:
-                print("无法解析SCADA数据的时间格式。尝试使用通用解析方法...")
-                scada_data['DateTime'] = pd.to_datetime(scada_data.iloc[:, 0], errors='coerce')
-
-    # 确认DateTime列不为空
-    if scada_data['DateTime'].isna().all():
-        print("警告: 所有日期时间解析失败。创建替代时间戳...")
-        # 创建一个假的时间序列作为替代
-        scada_data['DateTime'] = pd.date_range(start='2014-01-01', periods=len(scada_data), freq='10min')
+            scada_data['DateTime'] = pd.to_datetime(scada_data.iloc[:, 0], errors='coerce')
+            print("成功从第一列创建DateTime列")
+        except Exception as e:
+            print(f"从第一列创建DateTime列失败: {str(e)}")
+            # 如果无法从第一列创建，创建一个假的时间序列
+            print("创建替代时间戳...")
+            scada_data['DateTime'] = pd.date_range(start='2014-01-01', periods=len(scada_data), freq='10min')
+    else:
+        # 确保DateTime列是datetime类型
+        if not pd.api.types.is_datetime64_any_dtype(scada_data['DateTime']):
+            print("将SCADA数据中的DateTime列转换为datetime类型...")
+            scada_data['DateTime'] = pd.to_datetime(scada_data['DateTime'], errors='coerce')
 
     # 处理故障数据中的时间
-    if 'DateTime' not in fault_data.columns and 'DateTime' in fault_data.columns:
-        # 可能列名大小写不一致
-        fault_data = fault_data.rename(columns={'DateTime': 'DateTime'})
-
-    # 确保故障数据有DateTime列
     if 'DateTime' not in fault_data.columns:
-        try:
-            fault_data['DateTime'] = pd.to_datetime(fault_data.iloc[:, 0], errors='coerce')
-        except:
-            print("无法解析故障数据的时间格式。尝试使用通用解析方法...")
-            if 'Time' in fault_data.columns:
-                # 尝试使用UNIX时间戳
-                fault_data['DateTime'] = pd.to_datetime(fault_data['Time'], unit='s')
-            else:
-                print("警告: 无法为故障数据创建DateTime列。这可能导致后续问题。")
+        if 'datetime' in fault_data.columns:  # 检查小写版本
+            fault_data = fault_data.rename(columns={'datetime': 'DateTime'})
+            print("故障数据中的'datetime'列已重命名为'DateTime'")
+        else:
+            # 尝试从第一列创建
+            try:
+                fault_data['DateTime'] = pd.to_datetime(fault_data.iloc[:, 0], errors='coerce')
+                print("成功从第一列为故障数据创建DateTime列")
+            except Exception as e:
+                print(f"为故障数据创建DateTime列失败: {str(e)}")
+                # 如果无法从第一列创建，创建一个假的时间序列
+                print("为故障数据创建替代时间戳...")
+                fault_data['DateTime'] = pd.date_range(start='2014-01-01', periods=len(fault_data), freq='1D')
+
+    # 确保故障数据的DateTime列是datetime类型
+    if not pd.api.types.is_datetime64_any_dtype(fault_data['DateTime']):
+        print("将故障数据中的DateTime列转换为datetime类型...")
+        fault_data['DateTime'] = pd.to_datetime(fault_data['DateTime'], errors='coerce')
+
+    # 打印转换后的数据类型
+    print(f"SCADA数据DateTime列类型: {scada_data['DateTime'].dtype}")
+    print(f"故障数据DateTime列类型: {fault_data['DateTime'].dtype}")
 
     # 2. 创建合适的列名（保留DateTime列）
     column_names = get_column_names()
@@ -166,33 +174,28 @@ def preprocess_data(scada_data, fault_data):
     try:
         scada_data.sort_values('DateTime', inplace=True)
         fault_data.sort_values('DateTime', inplace=True)
+
+        # 查看哪些故障时间在SCADA数据的时间范围内
+        scada_min_time = scada_data['DateTime'].min()
+        scada_max_time = scada_data['DateTime'].max()
+
+        print(f"SCADA数据时间范围: {scada_min_time} 至 {scada_max_time}")
+
+        # 进行比较前再次确认类型
+        if not pd.api.types.is_datetime64_any_dtype(fault_data['DateTime']):
+            fault_data['DateTime'] = pd.to_datetime(fault_data['DateTime'], errors='coerce')
+
+        valid_faults = fault_data[(fault_data['DateTime'] >= scada_min_time) &
+                                  (fault_data['DateTime'] <= scada_max_time)]
+
+        print(f"在SCADA数据范围内的故障数量: {len(valid_faults)} (总数: {len(fault_data)})")
+
     except KeyError as e:
-        print(f"排序错误: {e}。检查DataFrame的列...")
+        print(f"排序或筛选错误: {e}。检查DataFrame的列...")
         print("SCADA数据列:", scada_data.columns.tolist())
         print("故障数据列:", fault_data.columns.tolist())
-        print("尝试创建缺失的列...")
-
-        if 'DateTime' not in scada_data.columns:
-            # 再次尝试创建DateTime列
-            scada_data['DateTime'] = pd.date_range(start='2014-01-01', periods=len(scada_data), freq='10min')
-
-        if 'DateTime' not in fault_data.columns:
-            # 再次尝试创建DateTime列
-            fault_data['DateTime'] = pd.date_range(start='2014-01-01', periods=len(fault_data), freq='1D')
-
-        # 再次尝试排序
-        scada_data.sort_values('DateTime', inplace=True)
-        fault_data.sort_values('DateTime', inplace=True)
-
-    # 查看哪些故障时间在SCADA数据的时间范围内
-    scada_min_time = scada_data['DateTime'].min()
-    scada_max_time = scada_data['DateTime'].max()
-
-    valid_faults = fault_data[(fault_data['DateTime'] >= scada_min_time) &
-                              (fault_data['DateTime'] <= scada_max_time)]
-
-    print(f"SCADA数据时间范围: {scada_min_time} 至 {scada_max_time}")
-    print(f"在SCADA数据范围内的故障数量: {len(valid_faults)} (总数: {len(fault_data)})")
+        # 为避免程序崩溃，使用所有故障数据继续
+        valid_faults = fault_data.copy()
 
     # 5. 创建带故障标签的数据
     labeled_data = scada_data.copy()

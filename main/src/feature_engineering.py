@@ -29,11 +29,9 @@ def extract_features(labeled_data):
 
     for col in numeric_columns:
         features[f'{col}_mean'] = labeled_data[col].rolling(window=WINDOW_SIZE, min_periods=1).mean()
-
         features[f'{col}_std'] = labeled_data[col].rolling(window=WINDOW_SIZE, min_periods=1).std()
 
         features[f'{col}_min'] = labeled_data[col].rolling(window=WINDOW_SIZE, min_periods=1).min()
-
         features[f'{col}_max'] = labeled_data[col].rolling(window=WINDOW_SIZE, min_periods=1).max()
         features[f'{col}_median'] = labeled_data[col].rolling(window=WINDOW_SIZE, min_periods=1).median()
 
