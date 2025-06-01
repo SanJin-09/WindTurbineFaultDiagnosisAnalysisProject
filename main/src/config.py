@@ -38,7 +38,7 @@ MLP_HIDDEN_LAYERS = (100,)
 MLP_MAX_ITER = 1000
 
 # 路径
-MODEL_PATH = '../report/best_turbine_fault_model.pkl'
-SCALER_PATH = '../report/feature_scaler.pkl'
-SELECTOR_PATH = '../report/feature_selector.pkl'
-ENCODER_PATH = '../report/label_encoder.pkl'
+MODEL_PATH = 'best_turbine_fault_model.pkl'
+SCALER_PATH = 'feature_scaler.pkl'
+SELECTOR_PATH = 'feature_selector.pkl'
+ENCODER_PATH = 'label_encoder.pkl'
