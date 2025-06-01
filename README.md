@@ -1,4 +1,4 @@
-# Wind Turbine Fault Diagnosis Analysis project
+# Wind Turbine Fault Diagnosis Analysis Project
 **Big Data coursework report**\
 \
 **Team member：WU Xinyan, SUN Runze**
