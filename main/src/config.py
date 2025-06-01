@@ -8,7 +8,6 @@ import os
 CONFIG_FILE_PATH = os.path.abspath(__file__)
 # 获取 src 目录路径
 SRC_DIR = os.path.dirname(CONFIG_FILE_PATH)
-# 获取项目根目录路径（假设 src 的父目录是项目根目录）
 PROJECT_ROOT = os.path.dirname(SRC_DIR)
 # 构建数据目录路径
 DATA_DIR = os.path.join(PROJECT_ROOT, 'data')
@@ -22,8 +21,8 @@ WINDOW_BEFORE = 2  # 故障前时间窗口（hour）
 WINDOW_AFTER = 0.17  # 故障后时间窗口（hour）
 
 # 特征工程参数
-WINDOW_SIZE = 5  # 滑动窗口大小
-IMPORTANCE_THRESHOLD = 0.01  # 阈值
+WINDOW_SIZE = 5
+IMPORTANCE_THRESHOLD = 0.01
 
 # 模型训练参数
 TEST_SIZE = 0.3
@@ -35,7 +34,7 @@ MLP_HIDDEN_LAYERS = (100,)
 MLP_MAX_ITER = 1000
 
 # 路径
-MODEL_PATH = 'best_turbine_fault_model.pkl'
-SCALER_PATH = 'feature_scaler.pkl'
-SELECTOR_PATH = 'feature_selector.pkl'
-ENCODER_PATH = 'label_encoder.pkl'
+MODEL_PATH = '../report/best_turbine_fault_model.pkl'
+SCALER_PATH = '../report/feature_scaler.pkl'
+SELECTOR_PATH = '../report/feature_selector.pkl'
+ENCODER_PATH = '../report/label_encoder.pkl'
