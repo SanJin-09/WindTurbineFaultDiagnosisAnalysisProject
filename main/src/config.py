@@ -5,20 +5,24 @@ config包含所有配置参数
 """
 import os
 
+# 构建数据目录路径
 CONFIG_FILE_PATH = os.path.abspath(__file__)
-# 获取 src 目录路径
 SRC_DIR = os.path.dirname(CONFIG_FILE_PATH)
 PROJECT_ROOT = os.path.dirname(SRC_DIR)
-# 构建数据目录路径
 DATA_DIR = os.path.join(PROJECT_ROOT, 'data')
 
 # 文件路径使用绝对路径
 SCADA_DATA_PATH = os.path.join(DATA_DIR, 'scada_data.csv')
 FAULT_DATA_PATH = os.path.join(DATA_DIR, 'fault_data.csv')
 
+# 日志配置
+LOG_LEVEL = 'INFO'
+LOG_DIR = 'logs'
+LOG_TO_FILE = True
+
 # 数据预处理参数
-WINDOW_BEFORE = 2  # 故障前时间窗口（hour）
-WINDOW_AFTER = 0.17  # 故障后时间窗口（hour）
+WINDOW_BEFORE = 2
+WINDOW_AFTER = 0.17
 
 # 特征工程参数
 WINDOW_SIZE = 5
