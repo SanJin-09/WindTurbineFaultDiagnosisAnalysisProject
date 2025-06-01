@@ -9,9 +9,6 @@ from utils import save_model, print_summary
 
 
 def main():
-    """
-    风力涡轮机故障诊断主程序
-    """
     print("=== 风力涡轮机故障诊断系统 ===\n")
 
     # 1. 加载数据
