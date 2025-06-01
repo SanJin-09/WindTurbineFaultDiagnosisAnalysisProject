@@ -3,9 +3,19 @@ Author: <WU Xinyan>
 config包含所有配置参数
 谨慎更改!!
 """
-# 文件路径
-SCADA_DATA_PATH = '../data/scada_data.csv'
-FAULT_DATA_PATH = 'fault_data.csv'
+import os
+
+CONFIG_FILE_PATH = os.path.abspath(__file__)
+# 获取 src 目录路径
+SRC_DIR = os.path.dirname(CONFIG_FILE_PATH)
+# 获取项目根目录路径（假设 src 的父目录是项目根目录）
+PROJECT_ROOT = os.path.dirname(SRC_DIR)
+# 构建数据目录路径
+DATA_DIR = os.path.join(PROJECT_ROOT, 'data')
+
+# 文件路径使用绝对路径
+SCADA_DATA_PATH = os.path.join(DATA_DIR, 'scada_data.csv')
+FAULT_DATA_PATH = os.path.join(DATA_DIR, 'fault_data.csv')
 
 # 数据预处理参数
 WINDOW_BEFORE = 2  # 故障前时间窗口（hour）
