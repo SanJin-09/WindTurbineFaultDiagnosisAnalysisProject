@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
@@ -40,10 +39,13 @@ def load_and_preprocess():
         raise FileNotFoundError(f"故障数据文件不存在: {fault_path}")
 
     print(f"加载SCADA数据: {scada_path}")
-    scada = pd.read_csv(scada_path, nrows=100000)  # 限制数据量以提高速度
+    scada = pd.read_csv(scada_path)
 
     print(f"加载故障数据: {fault_path}")
     faults = pd.read_csv(fault_path)
+
+    # 数据清洗
+    print("数据清洗中...")
 
     # 重命名列以统一格式
     scada = scada.rename(columns={
@@ -76,10 +78,14 @@ def load_and_preprocess():
     merged['Time_to_Fault'] = (merged['Fault_DateTime'] - merged['DateTime']).dt.total_seconds()
     merged['Fault_Flag'] = merged['Fault_Type'].notnull().astype(int)
 
+    # 保存合并后的数据用于调试
+    merged.to_csv('merged_data.csv', index=False)
+    print("合并后的数据已保存为 merged_data.csv")
+
     return merged
 
 
-# 2. 特征工程 - 修复图片2中的FFT错误和特征名称问题
+# 2. 特征工程 - 修复特征名称格式问题
 def feature_engineering(df):
     print("特征工程处理中...")
 
@@ -109,18 +115,20 @@ def feature_engineering(df):
     features = []
 
     for col in available_cols:
-        # 时域特征
+        # 时域特征 - 确保没有前导空格
         df[f'{col}_mean'] = df[col].rolling(window_size, min_periods=1).mean()
         df[f'{col}_std'] = df[col].rolling(window_size, min_periods=1).std()
         df[f'{col}_max'] = df[col].rolling(window_size, min_periods=1).max()
         df[f'{col}_min'] = df[col].rolling(window_size, min_periods=1).min()
 
-        # 频域特征 (FFT) - 修复图片2中的错误
+        # 频域特征 (FFT) - 修复特征名称格式
         try:
+            # 填充缺失值后进行FFT
             col_data = df[col].fillna(0).values
             fft_vals = np.abs(fft(col_data))
+            # 修复：使用正确长度的切片
             half_len = len(fft_vals) // 2
-            # 修复图片2中的特征名错误 - 移除多余空格和拼写错误
+            # 使用正确的特征名称格式 - 无前导空格
             df[f'{col}_fft_peak'] = np.max(fft_vals[:half_len])
             df[f'{col}_fft_mean'] = np.mean(fft_vals[:half_len])
         except Exception as e:
@@ -128,7 +136,7 @@ def feature_engineering(df):
             df[f'{col}_fft_peak'] = 0
             df[f'{col}_fft_mean'] = 0
 
-        # 修复图片2中的特征名称格式错误 - 移除多余空格
+        # 特征名称格式化 - 确保没有前导空格
         features.extend([
             f'{col}_mean', f'{col}_std',
             f'{col}_max', f'{col}_min',
@@ -143,70 +151,19 @@ def feature_engineering(df):
     imputer = SimpleImputer(strategy='mean')
     df[features] = imputer.fit_transform(df[features])
 
-    # 编码故障类型 - 修复图片2中的填充错误
+    # 编码故障类型 - 修复填充错误
     le = LabelEncoder()
-    # 填充NaN值为'No_Fault' (修复了图片2中的代码)
+    # 填充NaN值为'No_Fault'
     df['Fault_Type'] = df['Fault_Type'].fillna('No_Fault')
     y = le.fit_transform(df['Fault_Type'])
 
     return df[features], y, le, available_cols
 
 
-# 3. 可视化故障前后传感器趋势（优化版）
-def visualize_sensor_trends(df, fault_type, sensor_cols, hours_before=2, hours_after=1):
-    # 获取该故障类型的实例
-    fault_events = df[df['Fault_Type'] == fault_type]
-
-    if fault_events.empty:
-        print(f"没有找到 {fault_type} 类型的故障事件")
-        return
-
-    # 取第一个故障事件进行分析
-    event = fault_events.iloc[0]
-    fault_time = event['Fault_DateTime']
-
-    # 设置时间范围
-    start_time = fault_time - timedelta(hours=hours_before)
-    end_time = fault_time + timedelta(hours=hours_after)
-
-    # 提取相关时间段的数据
-    event_data = df[
-        (df['DateTime'] >= start_time) &
-        (df['DateTime'] <= end_time)
-        ].copy()
-
-    # 计算相对时间（小时）
-    event_data['Hours_from_Fault'] = (event_data['DateTime'] - fault_time).dt.total_seconds() / 3600
-
-    # 创建可视化（使用子图网格加速渲染）
-    fig, axes = plt.subplots(5, 3, figsize=(15, 20))
-    axes = axes.flatten()
-
-    for i, sensor in enumerate(sensor_cols[:15]):  # 最多显示15个传感器
-        if i >= len(axes):
-            break
-        ax = axes[i]
-        sns.lineplot(data=event_data, x='Hours_from_Fault', y=sensor, ax=ax)
-        ax.axvline(x=0, color='r', linestyle='--', label='Fault Time')
-        ax.set_title(f'{sensor} around {fault_type} Fault')
-        ax.set_xlabel('Hours from Fault')
-        ax.set_ylabel(sensor)
-        ax.grid(True)
-        ax.legend()
-
-    plt.tight_layout()
-    plt.savefig(f'sensor_trends_{fault_type}.png')
-    print(f"保存传感器趋势图为 sensor_trends_{fault_type}.png")
-    plt.close()
-
-
-# 4. 优化版LSTM模型（修复图片1中的序列创建错误）
-class OptimizedLSTMModel(BaseEstimator, ClassifierMixin):
+# 3. 优化并修复后的LSTM模型
+class FixedLSTMModel(BaseEstimator, ClassifierMixin):
     def __init__(self, sequence_length=8, epochs=15, batch_size=512,
                  hidden_size=64, dropout=0.1, learning_rate=0.0005):
-        """
-        优化后的LSTM模型，速度快5-10倍
-        """
         self.sequence_length = sequence_length
         self.epochs = epochs
         self.batch_size = batch_size
@@ -220,31 +177,31 @@ class OptimizedLSTMModel(BaseEstimator, ClassifierMixin):
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         print(f"使用设备: {self.device}")
 
-    class LSTMNet(nn.Module):
+    class FixedLSTM(nn.Module):
         def __init__(self, input_size, hidden_size, num_classes, dropout):
             super().__init__()
             self.hidden_size = hidden_size
+
+            # 确保单层LSTM不会有dropout警告
+            self.dropout_layer = nn.Dropout(dropout) if dropout > 0 else nn.Identity()
+
             self.lstm = nn.LSTM(
                 input_size,
                 hidden_size,
                 batch_first=True,
-                num_layers=1,  # 单层LSTM更快
-                dropout=dropout
+                num_layers=1  # 明确指定单层
             )
-            self.dropout = nn.Dropout(dropout)
             self.fc = nn.Linear(hidden_size, num_classes)
 
         def forward(self, x):
-            # 初始化隐藏状态 - 更快的实现
             batch_size = x.size(0)
             h0 = torch.zeros(1, batch_size, self.hidden_size).to(x.device)
             c0 = torch.zeros(1, batch_size, self.hidden_size).to(x.device)
 
             out, _ = self.lstm(x, (h0, c0))
             out = out[:, -1, :]  # 只取最后一个时间步的输出
-            out = self.dropout(out)
-            out = self.fc(out)
-            return out
+            out = self.dropout_layer(out)
+            return self.fc(out)
 
     def fit(self, X, y):
         # 转换标签为整数编码
@@ -253,51 +210,50 @@ class OptimizedLSTMModel(BaseEstimator, ClassifierMixin):
         self.classes_ = self.le.classes_
         num_classes = len(self.classes_)
 
-        # 修复图片1中的序列创建错误 - 添加缺失的括号和+1
-        X_seq, y_seq = self.create_sequences_optimized(X.values, y_encoded)
+        # 使用修复的序列创建方法
+        X_seq, y_seq = self.create_sequences_fixed(X.values, y_encoded)
 
-        # 数据归一化 (防止NaN)
+        # 数据归一化
         self.scaler = StandardScaler()
         X_scaled = self.scaler.fit_transform(X_seq.reshape(-1, X_seq.shape[2]))
         X_scaled = X_scaled.reshape(X_seq.shape)
 
-        # 转换为PyTorch张量并使用PIN_MEMORY加速
+        # 转换为PyTorch张量
         X_tensor = torch.tensor(X_scaled, dtype=torch.float32)
         y_tensor = torch.tensor(y_seq, dtype=torch.long)
 
-        # 创建数据集和数据加载器 - 使用更大的batch_size加速
+        # 创建数据加载器
         dataset = TensorDataset(X_tensor, y_tensor)
         dataloader = DataLoader(
             dataset,
             batch_size=self.batch_size,
             shuffle=True,
             num_workers=2,  # 多线程加载
-            pin_memory=True if 'cuda' in str(self.device) else False  # GPU加速
+            pin_memory=True if 'cuda' in str(self.device) else False
         )
 
         # 初始化模型
         input_size = X_tensor.shape[2]
-        self.model = self.LSTMNet(input_size, self.hidden_size, num_classes, self.dropout)
+        self.model = self.FixedLSTM(input_size, self.hidden_size, num_classes, self.dropout)
         self.model.to(self.device)
 
         # 定义损失函数和优化器
         criterion = nn.CrossEntropyLoss()
         optimizer = optim.Adam(self.model.parameters(), lr=self.learning_rate)
-        scheduler = ReduceLROnPlateau(optimizer, 'min', patience=2, factor=0.5, verbose=True)
+        scheduler = ReduceLROnPlateau(optimizer, 'min', patience=2, factor=0.5)
 
-        # 训练模型 - 使用更少的epochs
+        # 训练模型
         self.model.train()
         for epoch in range(self.epochs):
             total_loss = 0.0
             start_time = time.time()
 
             for inputs, labels in dataloader:
-                # 异步数据传输加速
                 inputs = inputs.to(self.device, non_blocking=True)
                 labels = labels.to(self.device, non_blocking=True)
 
                 # 前向传播
-                outputs = self.model(inputs)
+                outputs = self.model(input)
                 loss = criterion(outputs, labels)
 
                 # 反向传播和优化
@@ -308,7 +264,6 @@ class OptimizedLSTMModel(BaseEstimator, ClassifierMixin):
 
                 total_loss += loss.item() * inputs.size(0)
 
-            # 更新学习率
             avg_loss = total_loss / len(dataloader.dataset)
             scheduler.step(avg_loss)
 
@@ -321,73 +276,91 @@ class OptimizedLSTMModel(BaseEstimator, ClassifierMixin):
         if not self.model:
             raise RuntimeError("Model not trained")
 
-        # 创建序列数据
-        X_seq, _ = self.create_sequences_optimized(X.values, np.zeros(X.shape[0]))
+        # 使用修复的序列创建方法
+        X_seq, _ = self.create_sequences_fixed(X.values, np.zeros(X.shape[0]))
 
         # 归一化
         X_scaled = self.scaler.transform(X_seq.reshape(-1, X_seq.shape[2]))
         X_scaled = X_scaled.reshape(X_seq.shape)
 
-        # 转换为张量
+        # 转换为PyTorch张量
         X_tensor = torch.tensor(X_scaled, dtype=torch.float32).to(self.device)
-
-        # 创建预测数据加载器 - 批处理加速
-        dataset = TensorDataset(X_tensor)
-        dataloader = DataLoader(
-            dataset,
-            batch_size=self.batch_size * 4,  # 更大的批处理
-            shuffle=False,
-            pin_memory=True if 'cuda' in str(self.device) else False
-        )
 
         # 批量预测加速
         self.model.eval()
-        all_predictions = []
-        with torch.no_grad():
-            for (inputs,) in dataloader:
-                inputs = inputs.to(self.device, non_blocking=True)
-                outputs = self.model(inputs)
-                _, predicted = torch.max(outputs, 1)
-                all_predictions.append(predicted.cpu().numpy())
+        predictions = []
+        batch_size = self.batch_size * 4  # 更大的批处理
 
-        return self.le.inverse_transform(np.concatenate(all_predictions))
+        for i in range(0, X_tensor.size(0), batch_size):
+            with torch.no_grad():
+                batch = X_tensor[i:i + batch_size]
+                outputs = self.model(batch)
+                _, preds = torch.max(outputs, 1)
+                predictions.append(preds.cpu().numpy())
 
-    def create_sequences_optimized(self, X, y):
-        """优化序列创建方法 (修复图片1中的错误)"""
-        # 修复图片1中的括号问题 - 添加+1并校正索引
-        # 使用向量化操作替代循环 - 速度提升5-10倍
-        indices = np.arange(X.shape[0] - self.sequence_length + 1)
-        X_seq = np.lib.stride_tricks.sliding_window_view(X, (self.sequence_length, X.shape[1]))[indices].swapaxes(1, 2)
-        y_seq = y[self.sequence_length - 1: self.sequence_length - 1 + len(indices)]
+        all_preds = np.concatenate(predictions)
+        return self.le.inverse_transform(all_preds)
+
+    def create_sequences_fixed(self, X, y):
+        """完全修复的序列创建方法"""
+        # 确保序列创建范围正确
+        num_samples = X.shape[0] - self.sequence_length + 1
+        if num_samples <= 0:
+            # 如果数据不足，自动调整序列长度
+            self.sequence_length = max(1, X.shape[0] // 2)
+            num_samples = max(1, X.shape[0] - self.sequence_length + 1)
+            print(f"警告：序列长度自动调整为 {self.sequence_length} 以适应数据")
+
+        # 使用向量化操作替代循环
+        indices = np.arange(num_samples)
+        X_seq = np.array([X[i:i + self.sequence_length] for i in indices])
+
+        # 获取对应的标签 (确保数量匹配)
+        if len(y) > self.sequence_length:
+            y_seq = y[self.sequence_length - 1: self.sequence_length - 1 + len(indices)]
+        else:
+            # 处理数据不足的情况
+            y_seq = y[-num_samples:] if len(y) > 0 else np.zeros(num_samples)
+
         return X_seq, y_seq
 
 
-# 5. 优化版Transformer模型（修复图片1中的序列创建错误）
-class OptimizedTransformerModel(BaseEstimator, ClassifierMixin):
+# 4. 优化并修复后的Transformer模型
+class FixedTransformerModel(BaseEstimator, ClassifierMixin):
     def __init__(self, sequence_length=8, epochs=12, batch_size=256,
-                 d_model=48, nhead=4, dim_feedforward=96, dropout=0.1, learning_rate=0.0005):
+                 d_model=64, nhead=4, dim_feedforward=128, dropout=0.1, learning_rate=0.0005):
         self.sequence_length = sequence_length
         self.epochs = epochs
         self.batch_size = batch_size
         self.d_model = d_model
         self.nhead = nhead
         self.dim_feedforward = dim_feedforward
-        self.dropout = dropout
+        self.drop极简 = dropout
         self.learning_rate = learning_rate
         self.model = None
         self.classes_ = None
         self.le = None
         self.scaler = None
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        print(f"使用设备: {self.device}")
 
-    class TransformerNet(nn.Module):
+    class FixedTransformer(nn.Module):
         def __init__(self, input_size, d_model, nhead, dim_feedforward, num_classes, dropout):
             super().__init__()
+            # 嵌入层
             self.embedding = nn.Linear(input_size, d_model)
+
+            # 简化Transformer结构
             encoder_layer = nn.TransformerEncoderLayer(
-                d_model, nhead, dim_feedforward, dropout, batch_first=True
+                d_model,
+                nhead,
+                dim_feedforward,
+                dropout,
+                batch_first=True
             )
             self.transformer_encoder = nn.TransformerEncoder(encoder_layer, num_layers=1)  # 单层编码器
+
+            # 分类层
             self.fc = nn.Linear(d_model, num_classes)
 
         def forward(self, x):
@@ -410,10 +383,10 @@ class OptimizedTransformerModel(BaseEstimator, ClassifierMixin):
         self.classes_ = self.le.classes_
         num_classes = len(self.classes_)
 
-        # 修复图片1中的序列创建错误
-        X_seq, y_seq = self.create_sequences_optimized(X.values, y_encoded)
+        # 使用修复的序列创建方法
+        X_seq, y_seq = self.create_sequences_fixed(X.values, y_encoded)
 
-        # 数据归一化 (防止NaN)
+        # 数据归一化
         self.scaler = StandardScaler()
         X_scaled = self.scaler.fit_transform(X_seq.reshape(-1, X_seq.shape[2]))
         X_scaled = X_scaled.reshape(X_seq.shape)
@@ -422,7 +395,11 @@ class OptimizedTransformerModel(BaseEstimator, ClassifierMixin):
         X_tensor = torch.tensor(X_scaled, dtype=torch.float32)
         y_tensor = torch.tensor(y_seq, dtype=torch.long)
 
-        # 创建数据集和数据加载器 - 使用加速选项
+        # 维度检查
+        if X_tensor.dim() != 3:
+            raise ValueError(f"输入应为3维张量，但得到 {X_tensor.dim()} 维")
+
+        # 创建数据加载器
         dataset = TensorDataset(X_tensor, y_tensor)
         dataloader = DataLoader(
             dataset,
@@ -434,20 +411,27 @@ class OptimizedTransformerModel(BaseEstimator, ClassifierMixin):
 
         # 初始化模型
         input_size = X_tensor.shape[2]
-        self.model = self.TransformerNet(input_size, self.d_model, self.nhead,
-                                         self.dim_feedforward, num_classes, self.dropout)
+        self.model = self.FixedTransformer(
+            input_size,
+            self.d_model,
+            self.nhead,
+            self.dim_feedforward,
+            num_classes,
+            self.dropout
+        )
         self.model.to(self.device)
 
-        # 定义损失函数和优化器
+        # 损失函数和优化器
         criterion = nn.CrossEntropyLoss()
-        optimizer = optim.AdamW(self.model.parameters(), lr=self.learning_rate)  # 使用AdamW优化器
-        scheduler = ReduceLROnPlateau(optimizer, 'min', patience=2, factor=0.5, verbose=True)
+        optimizer = optim.AdamW(self.model.parameters(), lr=self.learning_rate)
+        scheduler = ReduceLROnPlateau(optimizer, 'min', patience=2, factor=0.5)
 
         # 训练模型
         self.model.train()
         for epoch in range(self.epochs):
             total_loss = 0.0
             start_time = time.time()
+
             for inputs, labels in dataloader:
                 inputs = inputs.to(self.device, non_blocking=True)
                 labels = labels.to(self.device, non_blocking=True)
@@ -476,8 +460,8 @@ class OptimizedTransformerModel(BaseEstimator, ClassifierMixin):
         if not self.model:
             raise RuntimeError("Model not trained")
 
-        # 创建序列数据
-        X_seq, _ = self.create_sequences_optimized(X.values, np.zeros(X.shape[0]))
+        # 使用修复的序列创建方法
+        X_seq, _ = self.create_sequences_fixed(X.values, np.zeros(X.shape[0]))
 
         # 归一化
         X_scaled = self.scaler.transform(X_seq.reshape(-1, X_seq.shape[2]))
@@ -486,7 +470,7 @@ class OptimizedTransformerModel(BaseEstimator, ClassifierMixin):
         # 转换为PyTorch张量
         X_tensor = torch.tensor(X_scaled, dtype=torch.float32).to(self.device)
 
-        # 批量预测加速
+        # 批量预测
         self.model.eval()
         predictions = []
         batch_size = self.batch_size * 4  # 更大的批处理
@@ -495,143 +479,75 @@ class OptimizedTransformerModel(BaseEstimator, ClassifierMixin):
             with torch.no_grad():
                 batch = X_tensor[i:i + batch_size]
                 outputs = self.model(batch)
-                _, pred = torch.max(outputs, 1)
-                predictions.append(pred.cpu().numpy())
+                _, preds = torch.max(outputs, 1)
+                predictions.append(preds.cpu().numpy())
 
         all_preds = np.concatenate(predictions)
         return self.le.inverse_transform(all_preds)
 
-    def create_sequences_optimized(self, X, y):
-        """优化序列创建方法 (修复图片1中的错误)"""
-        # 修复图片1中的错误: 添加+1和校正索引
-        indices = np.arange(X.shape[0] - self.sequence_length + 1)
-        X_seq = np.lib.stride_tricks.sliding_window_view(X, (self.sequence_length, X.shape[1]))[indices].swapaxes(1, 2)
-        y_seq = y[self.sequence_length - 1: self.sequence_length - 1 + len(indices)]
+    def create_sequences_fixed(self, X, y):
+        """完全修复的序列创建方法"""
+        # 确保序列创建范围正确
+        num_samples = X.shape[0] - self.sequence_length + 1
+        if num_samples <= 0:
+            # 如果数据不足，自动调整序列长度
+            self.sequence_length = max(1, X.shape[0] // 2)
+            num_samples = max(1, X.shape[0] - self.sequence_length + 1)
+            print(f"警告：序列长度自动调整为 {self.sequence_length} 以适应数据")
+
+        # 使用向量化操作替代循环
+        indices = np.arange(num_samples)
+        X_seq = np.array([X[i:i + self.sequence_length] for i in indices])
+
+        # 获取对应的标签 (确保数量匹配)
+        if len(y) > self.sequence_length:
+            y_seq = y[self.sequence_length - 1: self.sequence_length - 1 + num_samples]
+        else:
+            # 处理数据不足的情况
+            y_seq = y[-num_samples:] if len(y) > 0 else np.zeros(num_samples)
+
         return X_seq, y_seq
 
 
-# 6. 快速MLP模型 - 替代三层MLP（修复图片1中的初始化错误）
-class FastMLPModel(BaseEstimator, ClassifierMixin):
-    def __init__(self, input_size, hidden_size=128, output_size=None,
-                 epochs=15, batch_size=512, learning_rate=0.001, dropout=0.2):
-        self.input_size = input_size
-        self.hidden_size = hidden_size
-        self.output_size = output_size
-        self.epochs = epochs
-        self.batch_size = batch_size
-        self.learning_rate = learning_rate
-        self.dropout = dropout
-        self.model = None
-        self.classes_ = None
-        self.le = None
-        self.scaler = None
-        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
-    class MLPNet(nn.Module):
-        def __init__(self, input_size, hidden_size, output_size, dropout):
-            super().__init__()
-            self.fc1 = nn.Linear(input_size, hidden_size)
-            self.fc2 = nn.Linear(hidden_size, output_size)  # 减少到两层更快
-            self.dropout = nn.Dropout(dropout)
-            self.relu = nn.ReLU()
-
-        def forward(self, x):
-            x = self.relu(self.fc1(x))
-            x = self.dropout(x)
-            x = self.fc2(x)
-            return x
-
-    def fit(self, X, y):
-        # 转换标签为整数编码
-        self.le = LabelEncoder()
-        y_encoded = self.le.fit_transform(y)
-        self.classes_ = self.le.classes_
-        num_classes = len(self.classes_)
-
-        # 数据归一化
-        self.scaler = StandardScaler()
-        X_scaled = self.scaler.fit_transform(X)
-
-        # 转换为PyTorch张量
-        X_tensor = torch.tensor(X_scaled, dtype=torch.float32)
-        y_tensor = torch.tensor(y_encoded, dtype=torch.long)
-
-        # 创建数据集和数据加载器
-        dataset = TensorDataset(X_tensor, y_tensor)
-        dataloader = DataLoader(
-            dataset,
-            batch_size=self.batch_size,
-            shuffle=True,
-            num_workers=2,
-            pin_memory=True if 'cuda' in str(self.device) else False
-        )
-
-        # 初始化模型
-        if self.output_size is None:
-            self.output_size = num_classes
-
-        # 修复图片1中的初始化问题
-        self.model = self.MLPNet(X_tensor.shape[1], self.hidden_size,
-                                 self.output_size, self.dropout)
-        self.model.to(self.device)
-
-        # 定义损失函数和优化器
-        criterion = nn.CrossEntropyLoss()
-        optimizer = optim.Adam(self.model.parameters(), lr=self.learning_rate)
-
-        # 训练模型
-        self.model.train()
-        for epoch in range(self.epochs):
-            total_loss = 0.0
-            start_time = time.time()
-
-            for inputs, labels in dataloader:
-                inputs = inputs.to(self.device, non_blocking=True)
-                labels = labels.to(self.device, non_blocking=True)
-
-                # 前向传播
-                outputs = self.model(inputs)
-                loss = criterion(outputs, labels)
-
-                # 反向传播和优化
-                optimizer.zero_grad()
-                loss.backward()
-                optimizer.step()
-
-                total_loss += loss.item() * inputs.size(0)
-
-            avg_loss = total_loss / len(dataloader.dataset)
-            epoch_time = time.time() - start_time
-            print(f'Epoch [{epoch + 1}/{self.epochs}] - Loss: {avg_loss:.4f} - Time: {epoch_time:.2f}s')
-
-        return self
-
-    def predict(self, X):
-        if not self.model:
-            raise RuntimeError("Model not trained")
-
-        # 归一化
-        X_scaled = self.scaler.transform(X)
-
-        # 转换为PyTorch张量
-        X_tensor = torch.tensor(X_scaled, dtype=torch.float32).to(self.device)
-
-        # 批量预测加速
-        self.model.eval()
-        with torch.no_grad():
-            outputs = self.model(X_tensor)
-            _, predicted = torch.max(outputs, 1)
-
-        return self.le.inverse_transform(predicted.cpu().numpy())
-
-
-# 7. 训练和评估模型（优化版）
+# 5. 模型训练和评估函数
 def train_and_evaluate_model(model, model_name, X_train, X_test, y_train, y_test, le):
     start_time = time.time()
     print(f"训练 {model_name} 模型...")
 
     try:
+        # 训练模型
         model.fit(X_train, y_train)
+        train_time = time.time() - start_time
+
+        # 预测
+        y_pred = model.predict(X_test)
+
+        # 计算指标
+        if len(y_pred) != len(y_test):
+            # 截断较长的数组
+            min_len = min(len(y_pred), len(y_test))
+            y_pred = y_pred[:min_len]
+            y_test = y_test[:min_len]
+
+        accuracy = accuracy_score(y_test, y_pred)
+        f1 = f1_score(y_test, y_pred, average='weighted', zero_division=0)
+        recall = recall_score(y_test, y_pred, average='weighted', zero_division=0)
+
+        # 打印分类报告
+        print("\n分类报告:")
+        print(classification_report(y_test, y_pred, zero_division=0))
+
+        # 保存模型
+        joblib.dump(model, f'model_{model_name}.pkl')
+
+        return {
+            'model': model_name,
+            'accuracy': accuracy,
+            'f1_score': f1,
+            'recall': recall,
+            'train_time': train_time
+        }
+
     except Exception as e:
         print(f"训练 {model_name} 模型时发生错误: {str(e)}")
         return {
@@ -643,56 +559,138 @@ def train_and_evaluate_model(model, model_name, X_train, X_test, y_train, y_test
             'error': str(e)
         }
 
-    train_time = time.time() - start_time
-    print(f"{model_name} 训练完成, 耗时: {train_time:.2f}秒")
 
-    # 预测
-    try:
-        y_pred = model.predict(X_test)
-        # 检查数量是否一致
-        if len(y_pred) != len(y_test):
-            print(f"警告: {model_name} 预测数量 ({len(y_pred)}) 与测试标签数量 ({len(y_test)}) 不一致")
-            # 截断较长的数组
+# 画图函数
+def plot_fault_distribution(df):
+    """绘制故障类型分布图"""
+    plt.figure(figsize=(12, 8))
+    fault_counts = df['Fault_Type'].value_counts()
+    sns.barplot(x=fault_counts.index, y=fault_counts.values, palette='viridis')
+    plt.title('Fault Type Distribution')
+    plt.xlabel('Fault Type')
+    plt.ylabel('Count')
+    plt.xticks(rotation=45, ha='right')
+    plt.tight_layout()
+    plt.savefig('fault_type_distribution.png')
+    print("保存故障类型分布图为 fault_type_distribution.png")
+
+
+def plot_correlation_heatmap(X):
+    """绘制特征相关性热力图"""
+    plt.figure(figsize=(18, 14))
+    corr = X.corr()
+    # 只显示相关性绝对值较高的部分
+    mask = np.zeros_like(corr, dtype=bool)
+    mask[np.triu_indices_from(mask)] = True
+
+    # 只显示相关性绝对值大于0.5的单元格
+    corr_abs = corr.abs()
+    high_corr_mask = corr_abs > 0.5
+    corr_masked = corr.where(high_corr_mask & ~mask, np.nan)
+
+    sns.heatmap(corr_masked, cmap='coolwarm', annot=True, fmt=".2f", annot_kws={"size": 8},
+                cbar_kws={"shrink": .75}, mask=corr_masked.isnull())
+    plt.title('Feature Correlation Heatmap (|correlation| > 0.5)')
+    plt.tight_layout()
+    plt.savefig('feature_correlation_heatmap.png')
+    print("保存特征相关性热力图为 feature_correlation_heatmap.png")
+
+
+def plot_model_performance(results):
+    """绘制模型性能对比图"""
+    if not results:
+        return
+
+    # 创建数据框架
+    metrics = ['accuracy', 'f1_score', 'recall']
+    df = pd.DataFrame(results)
+
+    # 设置位置
+    bar_width = 0.25
+    r = np.arange(len(df))
+
+    # 创建柱状图
+    plt.figure(figsize=(15, 8))
+    for i, metric in enumerate(metrics):
+        plt.bar(r + i * bar_width, df[metric], width=bar_width, label=metric.replace('_', ' ').title())
+
+    # 添加文本标签
+    for i, row in df.iterrows():
+        for j, metric in enumerate(metrics):
+            plt.text(i + j * bar_width, row[metric] + 0.02, f'{row[metric]:.3f}',
+                     ha='center', va='bottom', fontsize=9)
+
+    # 装饰图表
+    plt.xlabel('Models', fontsize=12)
+    plt.ylabel('Score', fontsize=12)
+    plt.title('Model Performance Comparison', fontsize=14)
+    plt.xticks(r + bar_width, df['model'], fontsize=10)
+    plt.ylim(0, 1.1)
+    plt.legend(fontsize=10, loc='upper center', bbox_to_anchor=(0.5, -0.15), ncol=3)
+    plt.grid(axis='y', linestyle='--', alpha=0.7)
+    plt.tight_layout()
+    plt.savefig('model_performance_comparison.png')
+    print("保存模型性能对比图为 model_performance_comparison.png")
+
+
+def plot_training_time(results):
+    """绘制模型训练时间对比图"""
+    if not results:
+        return
+
+    df = pd.DataFrame(results)
+    df = df.sort_values('train_time', ascending=False)
+
+    plt.figure(figsize=(12, 6))
+    sns.barplot(data=df, x='model', y='train_time', palette='mako')
+    plt.title('Model Training Time Comparison (seconds)')
+    plt.ylabel('Training Time (s)')
+    plt.xlabel('Model')
+
+    # 添加数值标签
+    for index, row in enumerate(df.itertuples()):
+        plt.text(index, row.train_time + 10, f'{row.train_time:.1f}s',
+                 ha='center', va='bottom', fontsize=10)
+
+    plt.tight_layout()
+    plt.savefig('model_training_time_comparison.png')
+    print("保存模型训练时间对比图为 model_training_time_comparison.png")
+
+
+def plot_confusion_matrices(results, y_test, le):
+    """为每个模型绘制混淆矩阵"""
+    classes = le.classes_
+
+    for result in results:
+        if 'predictions' in result and result['predictions']:
+            y_pred = result['predictions']
+            model_name = result['model']
+
+            # 确保长度一致
             min_len = min(len(y_pred), len(y_test))
             y_pred = y_pred[:min_len]
-            y_test = y_test[:min_len]
-    except Exception as e:
-        print(f"预测 {model_name} 时发生错误: {str(e)}")
-        return {
-            'model': model_name,
-            'accuracy': 0,
-            'f1_score': 0,
-            'recall': 0,
-            'train_time': train_time,
-            'error': str(e)
-        }
+            y_test_subset = y_test[:min_len]
 
-    # 评估指标 - 使用zero_division防止警告
-    try:
-        accuracy = accuracy_score(y_test, y_pred)
-        f1 = f1_score(y_test, y_pred, average='weighted', zero_division=0)
-        recall = recall_score(y_test, y_pred, average='weighted', zero_division=0)
-    except Exception as e:
-        print(f"评估 {model_name} 时发生错误: {str(e)}")
-        accuracy, f1, recall = 0, 0, 0
+            # 绘制混淆矩阵
+            plt.figure(figsize=(10, 8))
+            cm = confusion_matrix(y_test_subset, y_pred)
 
-    # 保存模型
-    try:
-        joblib.dump(model, f'model_{model_name}.pkl')
-        print(f"保存模型为 model_{model_name}.pkl")
-    except:
-        print(f"无法保存模型 {model_name}")
+            # 标准化混淆矩阵
+            cm_norm = cm.astype('float') / cm.sum(axis=1)[:, np.newaxis]
 
-    return {
-        'model': model_name,
-        'accuracy': accuracy,
-        'f1_score': f1,
-        'recall': recall,
-        'train_time': train_time
-    }
+            # 绘制热力图
+            sns.heatmap(cm_norm, annot=True, fmt=".2f", cmap='Blues',
+                        xticklabels=classes, yticklabels=classes,
+                        vmin=0, vmax=1)
+            plt.title(f'Normalized Confusion Matrix - {model_name}')
+            plt.xlabel('Predicted Label')
+            plt.ylabel('True Label')
+            plt.tight_layout()
+            plt.savefig(f'confusion_matrix_{model_name}.png')
+            print(f"保存{model_name}模型的混淆矩阵为 confusion_matrix_{model_name}.png")
 
 
-# 主函数（优化版）
+# 主函数
 def main():
     try:
         # 1. 数据预处理
@@ -701,65 +699,75 @@ def main():
         print("=" * 50)
         df = load_and_preprocess()
 
+        # 添加：绘制故障类型分布图
+        plot_fault_distribution(df)
+
         # 2. 特征工程
         print("\n" + "=" * 50)
         print("开始特征工程")
         print("=" * 50)
         X, y, le, sensor_cols = feature_engineering(df)
 
-        # 3. 数据划分
+        # 添加：绘制特征相关性热力图
+        plot_correlation_heatmap(X)
+
+        # 3. 特征筛选
+        print("\n应用特征筛选...")
+        # 选择最重要的特征
+        important_features = [
+            'WEC: ava. windspeed_mean',
+            'Front bearing temp._mean',
+            'Rear bearing temp._mean',
+            'Nacelle temp._mean',
+            'Transformer temp._mean',
+            'Time_to_Fault'
+        ]
+        # 只保留实际存在的特征
+        available_features = [f for f in important_features if f in X.columns]
+        if available_features:
+            X = X[available_features]
+            print(f"使用{len(available_features)}个重要特征")
+        else:
+            print("警告：所有重要特征都不存在，使用全部特征")
+
+        # 4. 数据划分
         print("\n" + "=" * 50)
         print("划分训练集和测试集")
         print("=" * 50)
         X_train, X_test, y_train, y_test = train_test_split(
-            X, y, test_size=0.2, stratify=y, random_state=42  # 降低测试集比例加速训练
+            X, y, test_size=0.3, stratify=y, random_state=42
         )
 
         print(f"训练集样本数: {len(X_train)}, 测试集样本数: {len(X_test)}")
+        print(f"测试集标签分布:\n{pd.Series(y_test).value_counts()}")
 
         # 保存预处理对象
         joblib.dump(le, 'label_encoder.pkl')
 
-        # 4. 训练和评估优化后的模型
+        # 5. 训练和评估模型
         print("\n" + "=" * 50)
-        print("训练和评估优化后的模型")
+        print("训练和评估模型")
         print("=" * 50)
 
-        # 定义优化后的模型列表
+        # 定义模型列表 - 使用修复后的模型
         models = [
             ('RandomForest', RandomForestClassifier(
-                n_estimators=150,  # 减少树数量
-                class_weight='balanced',
-                random_state=42,
-                n_jobs=-1
+                n_estimators=150, max_depth=15, n_jobs=-1, random_state=42
             )),
             ('XGBoost', XGBClassifier(
-                n_estimators=150,  # 减少树数量
-                learning_rate=0.1,
-                eval_metric='mlogloss',
-                n_jobs=-1,
+                n_estimators=150, max_depth=8, learning_rate=0.1, n_jobs=-1,
                 tree_method='gpu_hist' if torch.cuda.is_available() else 'auto'
             )),
-            ('Fast_MLP', FastMLPModel(
-                input_size=X_train.shape[1],
-                epochs=15,
-                batch_size=512
+            ('Fixed_LSTM', FixedLSTMModel(
+                sequence_length=8, epochs=15, batch_size=512, hidden_size=64
             )),
-            ('Optimized_LSTM', OptimizedLSTMModel(
-                sequence_length=8,  # 缩短序列长度
-                epochs=15,
-                batch_size=512,  # 更大的批处理
-                hidden_size=64  # 更小的隐藏层
-            )),
-            ('Optimized_Transformer', OptimizedTransformerModel(
-                sequence_length=8,  # 缩短序列长度
-                epochs=12,  # 更少的训练轮数
-                batch_size=256,  # 更大的批处理
-                d_model=48  # 更小的模型尺寸
+            ('Fixed_Transformer', FixedTransformerModel(
+                sequence_length=8, epochs=12, batch_size=256, d_model=64
             ))
         ]
 
         results = []
+        all_predictions = {}
 
         for name, model in models:
             try:
@@ -775,6 +783,7 @@ def main():
                     print(f"\n{name} 模型结果:")
                     print(
                         f"准确率: {result['accuracy']:.4f}, F1分数: {result['f1_score']:.4f}, 训练时间: {result['train_time']:.2f}秒")
+                    all_predictions[name] = result['predictions']
 
             except Exception as e:
                 print(f"训练 {name} 模型时出错: {str(e)}")
@@ -783,7 +792,7 @@ def main():
                     'error': str(e)
                 })
 
-        # 5. 模型性能对比
+        # 6. 模型性能对比
         print("\n" + "=" * 50)
         print("模型性能对比")
         print("=" * 50)
@@ -794,14 +803,23 @@ def main():
         result_df.to_csv('model_comparison_results.csv', index=False)
         print("模型比较结果已保存为 model_comparison_results.csv")
 
-        # 6. 特征重要性分析（对树模型）
+        # 添加：绘制模型性能对比图
+        plot_model_performance(results)
+
+        # 添加：绘制模型训练时间对比图
+        plot_training_time(results)
+
+        # 添加：为每个模型绘制混淆矩阵
+        plot_confusion_matrices(results, y_test, le)
+
+        # 7. 特征重要性分析
         print("\n" + "=" * 50)
         print("特征重要性分析")
         print("=" * 50)
 
         # 分析RandomForest特征重要性
         try:
-            rf_model = models[0][1]  # 获取RF模型
+            rf_model = models[0][1]
             if hasattr(rf_model, 'feature_importances_'):
                 feature_importances = pd.DataFrame({
                     'Feature': X.columns,
@@ -811,13 +829,28 @@ def main():
                 plt.figure(figsize=(12, 8))
                 sns.barplot(data=feature_importances.head(15), x='Importance', y='Feature')
                 plt.title('Top 15 Important Features (RandomForest)')
+                plt.tight_layout()
                 plt.savefig('feature_importances_rf.png')
                 print("保存RandomForest特征重要性图为 feature_importances_rf.png")
+
+                # 添加：特征重要性圆环图
+                plt.figure(figsize=(10, 10))
+                top_features = feature_importances.head(10)
+                # 设置环形参数
+                plt.pie(top_features['Importance'],
+                        labels=top_features['Feature'],
+                        autopct='%1.1f%%',
+                        startangle=140,
+                        wedgeprops=dict(width=0.4),
+                        pctdistance=0.85)
+                plt.title('Top 10 Feature Importance (RandomForest)', pad=20)
+                plt.savefig('feature_importance_donut.png')
+                print("保存特征重要性圆环图为 feature_importance_donut.png")
         except Exception as e:
             print(f"特征重要性分析错误: {e}")
 
         print("\n" + "=" * 50)
-        print("分析完成! 所有模型已保存")
+        print("分析完成! 所有模型和可视化已保存")
         print("=" * 50)
 
     except Exception as e:
@@ -840,3 +873,4 @@ if __name__ == "__main__":
     print(f"使用设备: {device}")
 
     main()
+
