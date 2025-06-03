@@ -68,10 +68,9 @@ def print_summary(fault_counts, features_shape, selected_features, important_fea
    - 最佳模型: {best_model_name}
    - 准确率: {best_accuracy:.4f}
    - 各模型对比:
-     * 随机森林: {accuracies['Random Forest']:.4f}
-     * 梯度提升树: {accuracies['Gradient Boosting']:.4f}
-     * XGBoost: {accuracies['XGBoost']:.4f}
-     * 神经网络: {accuracies['Neural Network']:.4f}
+     * 随机森林: {accuracies.get('Random Forest', 0):.4f}
+     * 梯度提升树: {accuracies.get('Gradient Boosting', 0):.4f}
+     * 神经网络: {accuracies.get('Neural Network', 0):.4f}
 
 4. 结论与建议:
    - 本模型能够有效识别不同类型的风机故障
