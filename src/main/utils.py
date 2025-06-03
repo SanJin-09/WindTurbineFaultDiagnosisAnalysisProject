@@ -24,7 +24,7 @@ def get_column_names():
 
 
 def save_model(model, scaler, selector, encoder):
-    from config import MODEL_PATH, SCALER_PATH, SELECTOR_PATH, ENCODER_PATH
+    from src.main.analysis.config import MODEL_PATH, SCALER_PATH, SELECTOR_PATH, ENCODER_PATH
 
     joblib.dump(model, MODEL_PATH)
     joblib.dump(scaler, SCALER_PATH)
@@ -38,7 +38,7 @@ def save_model(model, scaler, selector, encoder):
 
 
 def load_model():
-    from config import MODEL_PATH, SCALER_PATH, SELECTOR_PATH, ENCODER_PATH
+    from src.main.analysis.config import MODEL_PATH, SCALER_PATH, SELECTOR_PATH, ENCODER_PATH
 
     model = joblib.load(MODEL_PATH)
     scaler = joblib.load(SCALER_PATH)

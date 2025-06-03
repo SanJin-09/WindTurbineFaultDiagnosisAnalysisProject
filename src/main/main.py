@@ -4,11 +4,11 @@ from datetime import datetime
 
 warnings.filterwarnings('ignore')
 
-from config import LOG_LEVEL, LOG_DIR, LOG_TO_FILE
-from logging_utils import setup_logger
-from data_preprocessing import load_data, preprocess_data
-from feature_engineering import extract_features, prepare_features, select_features
-from model_training import split_data, train_models
+from src.main.analysis.config import LOG_LEVEL, LOG_DIR, LOG_TO_FILE
+from src.main.analysis.logging_utils import setup_logger
+from src.main.analysis.data_preprocessing import load_data, preprocess_data
+from src.main.analysis.feature_engineering import extract_features, prepare_features, select_features
+from src.main.analysis.model_training import split_data, train_models
 from utils import save_model, print_summary
 
 

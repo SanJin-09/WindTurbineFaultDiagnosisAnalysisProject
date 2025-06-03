@@ -7,7 +7,7 @@ from sklearn.metrics import classification_report, accuracy_score
 from sklearn.model_selection import train_test_split
 from sklearn.neural_network import MLPClassifier
 
-from config import (TEST_SIZE, RANDOM_STATE, RF_N_ESTIMATORS, GB_N_ESTIMATORS, MLP_HIDDEN_LAYERS, MLP_MAX_ITER)
+from src.main.analysis.config import (TEST_SIZE, RANDOM_STATE, RF_N_ESTIMATORS, GB_N_ESTIMATORS, MLP_HIDDEN_LAYERS, MLP_MAX_ITER)
 
 def split_data(x, y):
     x_train, x_test, y_train, y_test = train_test_split(
