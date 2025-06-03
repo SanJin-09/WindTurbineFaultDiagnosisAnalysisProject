@@ -13,69 +13,51 @@ import seaborn as sns
 from sklearn.metrics import confusion_matrix
 
 warnings.filterwarnings("ignore", message="findfont.*")
+
 def configure_fonts():
+    # 创建图片目录
     if not os.path.exists('images'):
         os.makedirs('images')
-    font_options = [
-        'Arial',
-        'Helvetica',
-        'DejaVu Sans',
-        'sans-serif'
-    ]
+
+    # 根据操作系统强制设置字体
     import platform
     system = platform.system()
 
-    # Mac
-    if system == 'Darwin':
-        mac_fonts = [
-            '/System/Library/Fonts/PingFang.ttc',
-            '/Library/Fonts/Arial Unicode.ttf',
-            '/System/Library/Fonts/STHeiti Light.ttc'
-        ]
-        for font_path in mac_fonts:
-            if os.path.exists(font_path):
-                if 'PingFang' in font_path:
-                    font_options.insert(0, 'PingFang HK')
-                elif 'Arial Unicode' in font_path:
-                    font_options.insert(0, 'Arial Unicode MS')
-                elif 'STHeiti' in font_path:
-                    font_options.insert(0, 'STHeiti Light')
+    # Windows 强制使用微软雅黑
+    if system == 'Windows':
+        # 直接设置微软雅黑作为首选字体
+        plt.rcParams['font.family'] = 'sans-serif'
+        plt.rcParams['font.sans-serif'] = ['Microsoft YaHei', 'SimHei', 'Arial']
+        plt.rcParams['axes.unicode_minus'] = False
+        logger.info("Windows系统: 强制使用Microsoft YaHei字体")
+        return 'Microsoft YaHei'
 
-    # Windows
-    elif system == 'Windows':
-        win_fonts = [
-            'C:\\Windows\\Fonts\\msyh.ttc',
-            'C:\\Windows\\Fonts\\simhei.ttf'
-        ]
-        for font_path in win_fonts:
-            if os.path.exists(font_path):
-                if 'msyh' in font_path:
-                    font_options.insert(0, 'Microsoft YaHei')
-                elif 'simhei' in font_path:
-                    font_options.insert(0, 'SimHei')
+    # MacOS 字体设置
+    elif system == 'Darwin':
+        # 尝试使用苹方字体
+        plt.rcParams['font.family'] = 'sans-serif'
+        plt.rcParams['font.sans-serif'] = ['PingFang HK', 'STHeiti Light', 'Arial Unicode MS', 'Helvetica', 'Arial']
+        plt.rcParams['axes.unicode_minus'] = False
+        logger.info("MacOS系统: 使用PingFang HK字体")
+        return 'PingFang HK'
 
-    # Linux
+    # Linux 字体设置
     elif system == 'Linux':
-        linux_fonts = [
-            '/usr/share/fonts/truetype/wqy/wqy-microhei.ttc',
-            '/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc'
-        ]
-        for font_path in linux_fonts:
-            if os.path.exists(font_path):
-                if 'wqy-microhei' in font_path:
-                    font_options.insert(0, 'WenQuanYi Micro Hei')
-                elif 'NotoSansCJK' in font_path:
-                    font_options.insert(0, 'Noto Sans CJK SC')
+        # 尝试使用文泉驿微米黑
+        plt.rcParams['font.family'] = 'sans-serif'
+        plt.rcParams['font.sans-serif'] = ['WenQuanYi Micro Hei', 'Noto Sans CJK SC', 'DejaVu Sans']
+        plt.rcParams['axes.unicode_minus'] = False
+        logger.info("Linux系统: 使用WenQuanYi Micro Hei字体")
+        return 'WenQuanYi Micro Hei'
 
-    plt.rcParams['font.sans-serif'] = font_options
-    plt.rcParams['axes.unicode_minus'] = False
+    # 默认设置
+    else:
+        plt.rcParams['font.family'] = 'sans-serif'
+        plt.rcParams['font.sans-serif'] = ['Arial', 'DejaVu Sans']
+        plt.rcParams['axes.unicode_minus'] = False
+        logger.info("未知系统: 使用Arial字体")
+        return 'Arial'
 
-    try:
-        plt.style.use('seaborn-v0_8-whitegrid')
-    except:
-        plt.style.use('seaborn-whitegrid')
-
-    return font_options[0]
 
 # 备选方案
 def safe_title(ax, chinese_title, english_title=""):
