@@ -32,6 +32,7 @@ def plot_fault_distribution(fault_distribution, title="故障分布"):
     plt.xticks(rotation=45)
     plt.tight_layout()
     plt.savefig('fault_distribution.png')
+    plt.show()
     logger.info("已保存故障分布图")
 
 
@@ -46,6 +47,7 @@ def plot_feature_distribution(labeled_data, features):
         plt.grid(True, alpha=0.3)
     plt.tight_layout()
     plt.savefig('feature_distribution.png')
+    plt.show()
     logger.info("已保存特征分布图")
 
 
@@ -72,6 +74,7 @@ def plot_model_accuracies(accuracies):
     plt.grid(axis='y', linestyle='--', alpha=0.7)
     plt.tight_layout()
     plt.savefig('model_accuracies.png')
+    plt.show()
     logger.info("已保存模型准确率对比图")
 
 
@@ -88,6 +91,7 @@ def plot_confusion_matrix(y_test, y_pred, classes, best_model_name):
     plt.ylabel('真实标签')
     plt.tight_layout()
     plt.savefig('confusion_matrix.png')
+    plt.show()
     logger.info("已保存混淆矩阵图")
 
 
@@ -123,6 +127,7 @@ def plot_classification_comparison(labeled_data, y_test, y_pred, features, times
 
     plt.tight_layout()
     plt.savefig('classification_comparison.png')
+    plt.show()
     logger.info("已保存分类结果对比图")
 
 
@@ -134,6 +139,7 @@ def plot_feature_correlation(labeled_data):
     plt.title('特征相关性热力图', fontsize=15)
     plt.tight_layout()
     plt.savefig('feature_correlation.png')
+    plt.show()
     logger.info("已保存特征相关性热力图")
 
 
@@ -163,6 +169,7 @@ def plot_time_series_features(labeled_data, features, num_samples=1000):
     plt.xticks(rotation=45)
     plt.tight_layout()
     plt.savefig('time_series_features.png')
+    plt.show()
     logger.info("已保存时间序列特征图")
 
 
@@ -178,6 +185,7 @@ def plot_feature_importance(model, feature_names, model_name):
         plt.xticks(range(len(importances)), [feature_names[i] for i in indices], rotation=90)
         plt.tight_layout()
         plt.savefig(f'{model_name}_feature_importance.png')
+        plt.show()
         logger.info(f"已保存{model_name}特征重要性图")
     else:
         logger.warning(f"{model_name}模型没有feature_importances_属性，无法绘制特征重要性图")
