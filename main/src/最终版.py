@@ -335,7 +335,7 @@ class FixedTransformerModel(BaseEstimator, ClassifierMixin):
         self.d_model = d_model
         self.nhead = nhead
         self.dim_feedforward = dim_feedforward
-        self.drop极简 = dropout
+        self.drop = dropout
         self.learning_rate = learning_rate
         self.model = None
         self.classes_ = None
