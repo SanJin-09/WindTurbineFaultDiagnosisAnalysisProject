@@ -195,7 +195,7 @@ def plot_classification_comparison(labeled_data, y_test, y_pred, features, times
 
 def plot_feature_correlation(labeled_data):
     """绘制特征相关性热力图"""
-    plt.figure(figsize=(12, 10))
+    plt.figure(figsize=(36, 30))
     corr = labeled_data.corr(numeric_only=True)
     sns.heatmap(corr, annot=True, fmt=".2f", cmap='coolwarm')
     plt.title('特征相关性热力图', fontsize=15)
