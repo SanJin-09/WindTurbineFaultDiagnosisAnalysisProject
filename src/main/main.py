@@ -60,7 +60,7 @@ def main():
 
         # 9. 图形绘制
         logger.info("正在绘制数据图像...")
-        graphics_drawing()
+        graphics_drawing(labeled_data, fault_distribution, best_model, best_model_name, accuracies, y_test, y_pred)
 
         # 10. 打印摘要
         logger.info("生成结果摘要...")

@@ -3,6 +3,8 @@ Author: <SUN Runze>
 数据与模型训练成果可视化
 """
 import logging
+import os
+import warnings
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -10,14 +12,94 @@ import pandas as pd
 import seaborn as sns
 from sklearn.metrics import confusion_matrix
 
-from src.main.analysis.data_preprocessing import preprocess_data, load_data
-from src.main.analysis.model_training import train_models, split_data
+warnings.filterwarnings("ignore", message="findfont.*")
+def configure_fonts():
+    if not os.path.exists('images'):
+        os.makedirs('images')
+    font_options = [
+        'Arial',
+        'Helvetica',
+        'DejaVu Sans',
+        'sans-serif'
+    ]
+    import platform
+    system = platform.system()
 
-# 设置中文字体
-plt.rcParams['font.sans-serif'] = ['SimHei']  # 用来正常显示中文标签
-plt.rcParams['axes.unicode_minus'] = False  # 用来正常显示负号
+    # Mac
+    if system == 'Darwin':
+        mac_fonts = [
+            '/System/Library/Fonts/PingFang.ttc',
+            '/Library/Fonts/Arial Unicode.ttf',
+            '/System/Library/Fonts/STHeiti Light.ttc'
+        ]
+        for font_path in mac_fonts:
+            if os.path.exists(font_path):
+                if 'PingFang' in font_path:
+                    font_options.insert(0, 'PingFang HK')
+                elif 'Arial Unicode' in font_path:
+                    font_options.insert(0, 'Arial Unicode MS')
+                elif 'STHeiti' in font_path:
+                    font_options.insert(0, 'STHeiti Light')
+
+    # Windows
+    elif system == 'Windows':
+        win_fonts = [
+            'C:\\Windows\\Fonts\\msyh.ttc',
+            'C:\\Windows\\Fonts\\simhei.ttf'
+        ]
+        for font_path in win_fonts:
+            if os.path.exists(font_path):
+                if 'msyh' in font_path:
+                    font_options.insert(0, 'Microsoft YaHei')
+                elif 'simhei' in font_path:
+                    font_options.insert(0, 'SimHei')
+
+    # Linux
+    elif system == 'Linux':
+        linux_fonts = [
+            '/usr/share/fonts/truetype/wqy/wqy-microhei.ttc',
+            '/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc'
+        ]
+        for font_path in linux_fonts:
+            if os.path.exists(font_path):
+                if 'wqy-microhei' in font_path:
+                    font_options.insert(0, 'WenQuanYi Micro Hei')
+                elif 'NotoSansCJK' in font_path:
+                    font_options.insert(0, 'Noto Sans CJK SC')
+
+    plt.rcParams['font.sans-serif'] = font_options
+    plt.rcParams['axes.unicode_minus'] = False
+
+    try:
+        plt.style.use('seaborn-v0_8-whitegrid')
+    except:
+        plt.style.use('seaborn-whitegrid')
+
+    return font_options[0]
+
+# 备选方案
+def safe_title(ax, chinese_title, english_title=""):
+    try:
+        ax.set_title(chinese_title, fontsize=15)
+    except:
+        if english_title:
+            ax.set_title(english_title, fontsize=15)
+        else:
+            translation = {
+                '故障分布': 'Fault Distribution',
+                '模型准确率对比': 'Model Accuracy Comparison',
+                '混淆矩阵': 'Confusion Matrix',
+                '部分特征随时间变化': 'Features over Time',
+                '真实故障与预测故障对比': 'True vs Predicted Faults',
+                '特征相关性热力图': 'Feature Correlation Heatmap',
+                '时间序列特征变化及故障点': 'Time Series Features and Fault Points',
+                '特征重要性': 'Feature Importance'
+            }
+            english = translation.get(chinese_title, chinese_title)
+            ax.set_title(english, fontsize=15)
 
 logger = logging.getLogger('visualization')
+preferred_font = configure_fonts()
 
 def plot_fault_distribution(fault_distribution, title="故障分布"):
     """绘制故障类型分布图"""
@@ -187,10 +269,10 @@ def plot_feature_importance(model, feature_names, model_name):
         logger.warning(f"{model_name}模型没有feature_importances_属性，无法绘制特征重要性图")
 
 # 主程序
-def graphics_drawing():
-    # 加载并处理数据
-    scada_data, fault_data = load_data(logger=logger)
-    labeled_data, fault_distribution = preprocess_data(scada_data, fault_data, logger=logger)
+def graphics_drawing(labeled_data, fault_distribution, best_model, best_model_name, accuracies, y_test, y_pred):
+    if not os.path.exists('images'):
+        os.makedirs('images')
+        logger.info("创建images目录用于保存图表")
 
     # 确保DateTime列是datetime类型
     if not pd.api.types.is_datetime64_any_dtype(labeled_data['DateTime']):
@@ -201,12 +283,6 @@ def graphics_drawing():
     features = [col for col in numeric_cols if col != 'Fault']
     x = labeled_data[features]
     y = labeled_data['Fault']
-
-    # 分割数据集
-    x_train, x_test, y_train, y_test = split_data(x, y)
-
-    # 训练模型
-    best_model, best_model_name, best_accuracy, accuracies, y_test, y_pred = train_models(x_train, y_train, x_test, y_test)
 
     # 获取故障类别
     classes = np.unique(y)
