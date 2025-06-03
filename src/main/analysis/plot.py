@@ -1,3 +1,7 @@
+"""
+Author: <SUN Runze>
+数据与模型训练成果可视化
+"""
 import logging
 
 import matplotlib.pyplot as plt
@@ -14,7 +18,6 @@ plt.rcParams['font.sans-serif'] = ['SimHei']  # 用来正常显示中文标签
 plt.rcParams['axes.unicode_minus'] = False  # 用来正常显示负号
 
 logger = logging.getLogger('visualization')
-
 
 def plot_fault_distribution(fault_distribution, title="故障分布"):
     """绘制故障类型分布图"""
@@ -35,7 +38,6 @@ def plot_fault_distribution(fault_distribution, title="故障分布"):
     plt.show()
     logger.info("已保存故障分布图")
 
-
 def plot_feature_distribution(labeled_data, features):
     """绘制关键特征分布直方图"""
     plt.figure(figsize=(15, 10))
@@ -49,7 +51,6 @@ def plot_feature_distribution(labeled_data, features):
     plt.savefig('images/feature_distribution.png')
     plt.show()
     logger.info("已保存特征分布图")
-
 
 def plot_model_accuracies(accuracies):
     """绘制各模型准确率比较图"""
@@ -77,7 +78,6 @@ def plot_model_accuracies(accuracies):
     plt.show()
     logger.info("已保存模型准确率对比图")
 
-
 def plot_confusion_matrix(y_test, y_pred, classes, best_model_name):
     """绘制混淆矩阵"""
     cm = confusion_matrix(y_test, y_pred)
@@ -93,7 +93,6 @@ def plot_confusion_matrix(y_test, y_pred, classes, best_model_name):
     plt.savefig('images/confusion_matrix.png')
     plt.show()
     logger.info("已保存混淆矩阵图")
-
 
 def plot_classification_comparison(labeled_data, y_test, y_pred, features, timesteps=50):
     """绘制真实值与预测值的对比（部分时间序列）"""
@@ -130,7 +129,6 @@ def plot_classification_comparison(labeled_data, y_test, y_pred, features, times
     plt.show()
     logger.info("已保存分类结果对比图")
 
-
 def plot_feature_correlation(labeled_data):
     """绘制特征相关性热力图"""
     plt.figure(figsize=(12, 10))
@@ -141,7 +139,6 @@ def plot_feature_correlation(labeled_data):
     plt.savefig('images/feature_correlation.png')
     plt.show()
     logger.info("已保存特征相关性热力图")
-
 
 def plot_time_series_features(labeled_data, features, num_samples=1000):
     """绘制部分时间序列特征图"""
@@ -172,7 +169,6 @@ def plot_time_series_features(labeled_data, features, num_samples=1000):
     plt.show()
     logger.info("已保存时间序列特征图")
 
-
 def plot_feature_importance(model, feature_names, model_name):
     """绘制特征重要性图"""
     if hasattr(model, 'feature_importances_'):
@@ -190,8 +186,8 @@ def plot_feature_importance(model, feature_names, model_name):
     else:
         logger.warning(f"{model_name}模型没有feature_importances_属性，无法绘制特征重要性图")
 
-
-def main():
+# 主程序
+def graphics_drawing():
     # 加载并处理数据
     scada_data, fault_data = load_data(logger=logger)
     labeled_data, fault_distribution = preprocess_data(scada_data, fault_data, logger=logger)
@@ -203,15 +199,14 @@ def main():
     # 准备特征和标签 - 只选择数值列
     numeric_cols = labeled_data.select_dtypes(include=np.number).columns
     features = [col for col in numeric_cols if col != 'Fault']
-    X = labeled_data[features]
+    x = labeled_data[features]
     y = labeled_data['Fault']
 
     # 分割数据集
-    X_train, X_test, y_train, y_test = split_data(X, y)
+    x_train, x_test, y_train, y_test = split_data(x, y)
 
     # 训练模型
-    best_model, best_model_name, best_accuracy, accuracies, y_test, y_pred = train_models(X_train, y_train, X_test,
-                                                                                          y_test)
+    best_model, best_model_name, best_accuracy, accuracies, y_test, y_pred = train_models(x_train, y_train, x_test, y_test)
 
     # 获取故障类别
     classes = np.unique(y)
@@ -229,8 +224,3 @@ def main():
     plot_feature_importance(best_model, features, best_model_name)
 
     logger.info("所有可视化图表已生成并保存")
-
-
-if __name__ == "__main__":
-    logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-    main()

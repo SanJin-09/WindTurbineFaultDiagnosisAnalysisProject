@@ -9,6 +9,7 @@ from src.main.analysis.logging_utils import setup_logger
 from src.main.analysis.data_preprocessing import load_data, preprocess_data
 from src.main.analysis.feature_engineering import extract_features, prepare_features, select_features
 from src.main.analysis.model_training import split_data, train_models
+from src.main.analysis.plot import graphics_drawing
 from utils import save_model, print_summary
 
 
@@ -57,7 +58,11 @@ def main():
         logger.info("正在保存模型...")
         save_model(best_model, scaler, selector, le)
 
-        # 9. 打印摘要
+        # 9. 图形绘制
+        logger.info("正在绘制数据图像...")
+        graphics_drawing()
+
+        # 10. 打印摘要
         logger.info("生成结果摘要...")
         print_summary(
             fault_distribution,

@@ -5,9 +5,9 @@ Author: <WU Xinyan>
 import pandas as pd
 import warnings
 from datetime import timedelta
-from utils import get_column_names
-from config import SCADA_DATA_PATH, FAULT_DATA_PATH, WINDOW_BEFORE, WINDOW_AFTER
-from logging_utils import get_logger
+from src.main.utils import get_column_names
+from src.main.analysis.config import SCADA_DATA_PATH, FAULT_DATA_PATH, WINDOW_BEFORE, WINDOW_AFTER
+from src.main.analysis.logging_utils import get_logger
 
 warnings.filterwarnings('ignore')
 

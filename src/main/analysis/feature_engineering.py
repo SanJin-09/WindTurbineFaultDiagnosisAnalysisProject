@@ -10,7 +10,7 @@ from sklearn.preprocessing import StandardScaler, LabelEncoder
 from sklearn.feature_selection import SelectFromModel
 from sklearn.ensemble import RandomForestClassifier
 
-from config import WINDOW_SIZE, IMPORTANCE_THRESHOLD
+from src.main.analysis.config import WINDOW_SIZE, IMPORTANCE_THRESHOLD
 
 
 def extract_features(labeled_data):
