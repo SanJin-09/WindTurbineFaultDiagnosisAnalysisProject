@@ -67,6 +67,8 @@ class FaultDiagnosisApp:
 
         # 创建临时目录
         self.temp_dir = self.create_temp_dir()
+        self.images_dir = os.path.join(self.temp_dir, "images")
+        os.makedirs(self.images_dir, exist_ok=True)
 
         # 创建UI
         self.create_widgets()
@@ -83,7 +85,6 @@ class FaultDiagnosisApp:
 
     def create_temp_dir(self):
         temp_dir = tempfile.mkdtemp()
-        # 使用安全的方式记录日志，避免在初始化阶段调用log方法
         self.log_queue.put(f"创建临时目录: {temp_dir}")
         return temp_dir
 
@@ -151,16 +152,13 @@ class FaultDiagnosisApp:
         if not zip_path:
             return
 
-        # 创建ZIP文件
-        images_dir = os.path.join(self.temp_dir, "images")
-
         try:
             with zipfile.ZipFile(zip_path, 'w') as zipf:
                 # 添加所有图像
-                if os.path.exists(images_dir):
-                    for file in os.listdir(images_dir):
+                if os.path.exists(self.images_dir):
+                    for file in os.listdir(self.images_dir):
                         if file.endswith('.png'):
-                            file_path = os.path.join(images_dir, file)
+                            file_path = os.path.join(self.images_dir, file)
                             zipf.write(file_path, os.path.join("images", file))
                 else:
                     self.log("警告: 图表目录不存在")
@@ -385,8 +383,17 @@ class FaultDiagnosisApp:
                  "特征相关性", "时间序列特征", "混淆矩阵", "特征随时间变化"]
         self.plot_selector = ttk.Combobox(self.plot_selector_frame, textvariable=self.plot_var, values=plots)
         self.plot_selector.pack(side=tk.LEFT, padx=5, fill=tk.X, expand=True)
-        self.plot_selector.bind('<<ComboboxSelected>>', self.show_selected_plot)
         self.plot_selector.current(0)
+
+        # 修复：确保方法存在后再绑定事件
+        if hasattr(self, 'show_selected_plot'):
+            self.plot_selector.bind('<<ComboboxSelected>>', self.show_selected_plot)
+        else:
+            # 设置一个占位函数
+            def placeholder(event):
+                messagebox.showwarning("功能未就绪", "图表选择功能尚未准备就绪")
+
+            self.plot_selector.bind('<<ComboboxSelected>>', placeholder)
 
         ttk.Button(self.plot_selector_frame, text="显示", command=self.show_selected_plot).pack(side=tk.LEFT)
 
@@ -492,11 +499,6 @@ class FaultDiagnosisApp:
             # 步骤4: 可视化
             self.log("\n步骤 4/4: 生成可视化图表...")
 
-            # 创建images目录
-            images_dir = os.path.join(self.temp_dir, "images")
-            os.makedirs(images_dir, exist_ok=True)
-            self.log(f"图表将保存到: {images_dir}")
-
             # 创建子线程进行可视化
             self.log("启动可视化线程...")
             graphics_thread = threading.Thread(
@@ -525,15 +527,34 @@ class FaultDiagnosisApp:
         """在单独线程中运行可视化以避免阻塞主线程"""
         try:
             self.log("开始生成可视化图表...")
+            self.log(f"图表将保存到: {self.images_dir}")
+
+            # 确保保存目录存在
+            os.makedirs(self.images_dir, exist_ok=True)
+
+            # 保存当前工作目录
+            original_dir = os.getcwd()
+
+            # 切换到临时目录，因为plot.py可能只保存到当前目录
+            os.chdir(self.temp_dir)
 
             # 调用可视化函数
-            graphics_drawing(labeled_data, fault_distribution, best_model, best_model_name,
-                             accuracies, y_test, y_pred)
+            graphics_drawing(
+                labeled_data,
+                fault_distribution,
+                best_model,
+                best_model_name,
+                accuracies,
+                y_test,
+                y_pred
+            )
+
+            # 切换回原始目录
+            os.chdir(original_dir)
 
             # 检查生成的图表文件
-            images_dir = os.path.join(self.temp_dir, "images")
-            if os.path.exists(images_dir):
-                image_files = [f for f in os.listdir(images_dir) if f.endswith('.png')]
+            if os.path.exists(self.images_dir):
+                image_files = [f for f in os.listdir(self.images_dir) if f.endswith('.png')]
                 self.log(f"生成图表: {', '.join(image_files)}")
             else:
                 self.log("警告: 图表目录不存在")
@@ -600,11 +621,6 @@ class FaultDiagnosisApp:
         except Exception as e:
             self.log(f"更新摘要时出错: {str(e)}")
 
-    def show_selected_plot(self, event=None):
-        plot_name = self.plot_var.get()
-        if plot_name:
-            self.show_plot(plot_name)
-
     def show_plot(self, plot_name):
         if not self.analysis_complete or not self.processed_data or not self.model_results:
             return
@@ -613,51 +629,91 @@ class FaultDiagnosisApp:
         self.fig.clear()
 
         try:
-            labeled_data, fault_distribution = self.processed_data
-            best_model, best_model_name, best_accuracy, accuracies, y_test, y_pred = self.model_results
+            # 获取模型名称（用于特征重要性文件名）
+            if hasattr(self, 'model_results') and len(self.model_results) > 1:
+                best_model_name = self.model_results[1].replace(" ", "_").lower()
+            else:
+                best_model_name = "unknown_model"
 
-            images_dir = os.path.join(self.temp_dir, "images")
-            img_path = ""
+            # 映射图表名称到实际文件名
+            plot_mapping = {
+                "故障分布": "fault_distribution.png",
+                "特征分布": "feature_distribution.png",
+                "模型准确率对比": "model_accuracies.png",
+                "特征重要性": f"{best_model_name}_feature_importance.png",
+                "特征相关性": "feature_correlation.png",
+                "时间序列特征": "time_series_features.png",
+                "混淆矩阵": "confusion_matrix.png",
+                "特征随时间变化": "classification_comparison.png"
+            }
 
-            if plot_name == "故障分布":
-                img_path = os.path.join(images_dir, "fault_distribution.png")
-            elif plot_name == "特征分布":
-                img_path = os.path.join(images_dir, "feature_distribution.png")
-            elif plot_name == "模型准确率对比":
-                img_path = os.path.join(images_dir, "model_accuracies.png")
-            elif plot_name == "特征重要性":
-                img_path = os.path.join(images_dir, f"{best_model_name}_feature_importance.png")
-            elif plot_name == "特征相关性":
-                img_path = os.path.join(images_dir, "feature_correlation.png")
-            elif plot_name == "时间序列特征":
-                img_path = os.path.join(images_dir, "time_series_features.png")
-            elif plot_name == "混淆矩阵":
-                img_path = os.path.join(images_dir, "confusion_matrix.png")
-            elif plot_name == "特征随时间变化":
-                img_path = os.path.join(images_dir, "classification_comparison.png")
+            filename = plot_mapping.get(plot_name)
+            if not filename:
+                raise ValueError(f"未知的图表名称: {plot_name}")
+
+            img_path = os.path.join(self.images_dir, filename)
+            self.log(f"尝试加载图表文件: {img_path}")
 
             if os.path.exists(img_path):
                 img = Image.open(img_path)
                 ax = self.fig.add_subplot(111)
                 ax.imshow(img)
-                ax.axis('off')  # 关闭坐标轴
+                ax.axis('off')
                 ax.set_title(plot_name)
                 self.log(f"显示图表: {plot_name}")
                 self.canvas.draw()
             else:
-                ax = self.fig.add_subplot(111)
-                ax.text(0.5, 0.5, f"未找到 {plot_name} 图表文件",
-                        horizontalalignment='center', verticalalignment='center',
-                        transform=ax.transAxes, fontsize=12)
-                self.canvas.draw()
+                # 尝试查找替换文件名（处理不同拼写）
+                alt_filenames = [
+                    f"feature_importance_{best_model_name}.png",
+                    f"feature_importance.png",
+                    f"{plot_name.lower().replace(' ', '_')}.png"
+                ]
+
+                # 查找存在的文件
+                found = False
+                for alt in alt_filenames:
+                    alt_path = os.path.join(self.images_dir, alt)
+                    if os.path.exists(alt_path):
+                        img = Image.open(alt_path)
+                        ax = self.fig.add_subplot(111)
+                        ax.imshow(img)
+                        ax.axis('off')
+                        ax.set_title(plot_name)
+                        self.log(f"找到备用图表文件: {alt_path}")
+                        self.canvas.draw()
+                        found = True
+                        break
+
+                if not found:
+                    # 找不到任何匹配文件
+                    ax = self.fig.add_subplot(111)
+                    ax.text(0.5, 0.5, f"未找到 {plot_name} 图表文件\n路径: {img_path}\n\n尝试了以下文件:\n" +
+                            "\n".join([alt for alt in alt_filenames]),
+                            horizontalalignment='center', verticalalignment='center',
+                            transform=ax.transAxes, fontsize=10)
+                    self.log(f"⚠️ 未找到图表文件: {img_path}")
+                    self.log(f"尝试了以下备选文件名: {alt_filenames}")
+                    self.log(f"实际目录内容: {os.listdir(self.images_dir)}")
+                    self.canvas.draw()
 
         except Exception as e:
             ax = self.fig.add_subplot(111)
-            ax.text(0.5, 0.5, f"显示图表时出错: {str(e)}",
+            ax.text(0.5, 0.5, f"显示图表时出错: {str(e)}\n{traceback.format_exc()}",
                     horizontalalignment='center', verticalalignment='center',
-                    transform=ax.transAxes, fontsize=12)
+                    transform=ax.transAxes, fontsize=10)
             self.log(f"显示图表时出错: {str(e)}")
+            self.log(traceback.format_exc())
             self.canvas.draw()
+
+    def show_selected_plot(self, event=None):
+        """处理图表选择事件"""
+        if hasattr(self, 'plot_var'):
+            plot_name = self.plot_var.get()
+            if plot_name:
+                self.show_plot(plot_name)
+        else:
+            messagebox.showwarning("功能未就绪", "图表选择功能尚未准备就绪")
 
     def on_closing(self):
         """关闭应用程序时的清理工作"""
