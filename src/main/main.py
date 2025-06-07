@@ -10,6 +10,7 @@ from src.main.analysis.data_preprocessing import load_data, preprocess_data
 from src.main.analysis.feature_engineering import extract_features, prepare_features, select_features
 from src.main.analysis.model_training import split_data, train_models
 from src.main.analysis.plot import graphics_drawing
+from src.main.analysis.dashboard import app_start
 from utils import save_model, print_summary
 
 
@@ -62,7 +63,11 @@ def main():
         logger.info("正在绘制数据图像...")
         graphics_drawing(labeled_data, fault_distribution, best_model, best_model_name, accuracies, y_test, y_pred)
 
-        # 10. 打印摘要
+        # 10. 仪表盘启动
+        logger.info("正在启动仪表盘...")
+        app_start()
+        
+        # 11. 打印摘要
         logger.info("生成结果摘要...")
         print_summary(
             fault_distribution,

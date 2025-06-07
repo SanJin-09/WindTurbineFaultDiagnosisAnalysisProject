@@ -19,13 +19,11 @@ def configure_fonts():
     if not os.path.exists('images'):
         os.makedirs('images')
 
-    # 根据操作系统强制设置字体
     import platform
     system = platform.system()
 
-    # Windows 强制使用微软雅黑
+    # Windows 字体设置
     if system == 'Windows':
-        # 直接设置微软雅黑作为首选字体
         plt.rcParams['font.family'] = 'sans-serif'
         plt.rcParams['font.sans-serif'] = ['Microsoft YaHei', 'SimHei', 'Arial']
         plt.rcParams['axes.unicode_minus'] = False
@@ -50,7 +48,7 @@ def configure_fonts():
         logger.info("Linux系统: 使用WenQuanYi Micro Hei字体")
         return 'WenQuanYi Micro Hei'
 
-    # 默认设置
+    # 默认
     else:
         plt.rcParams['font.family'] = 'sans-serif'
         plt.rcParams['font.sans-serif'] = ['Arial', 'DejaVu Sans']
@@ -159,8 +157,6 @@ def plot_confusion_matrix(y_test, y_pred, classes, best_model_name):
     logger.info("已保存混淆矩阵图")
 
 def plot_classification_comparison(labeled_data, y_test, y_pred, features, timesteps=50):
-    """绘制真实值与预测值的对比（部分时间序列）"""
-    # 从测试集中提取时间序列数据
     time_indices = np.arange(len(y_test))[:timesteps]
     true_labels = y_test[:timesteps]
     pred_labels = y_pred[:timesteps]
@@ -170,7 +166,7 @@ def plot_classification_comparison(labeled_data, y_test, y_pred, features, times
 
     # 绘制部分特征的变化
     plt.subplot(2, 1, 1)
-    for feature in features[:3]:  # 只展示前三个特征
+    for feature in features[:3]:
         plt.plot(time_indices, labeled_data[feature].values[:timesteps], label=feature)
     plt.title('部分特征随时间变化', fontsize=12)
     plt.xlabel('时间步')
@@ -234,7 +230,6 @@ def plot_time_series_features(labeled_data, features, num_samples=1000):
     logger.info("已保存时间序列特征图")
 
 def plot_feature_importance(model, feature_names, model_name):
-    """绘制特征重要性图"""
     if hasattr(model, 'feature_importances_'):
         importances = model.feature_importances_
         indices = np.argsort(importances)[::-1]
@@ -256,20 +251,16 @@ def graphics_drawing(labeled_data, fault_distribution, best_model, best_model_na
         os.makedirs('images')
         logger.info("创建images目录用于保存图表")
 
-    # 确保DateTime列是datetime类型
     if not pd.api.types.is_datetime64_any_dtype(labeled_data['DateTime']):
         labeled_data['DateTime'] = pd.to_datetime(labeled_data['DateTime'], errors='coerce')
 
-    # 准备特征和标签 - 只选择数值列
     numeric_cols = labeled_data.select_dtypes(include=np.number).columns
     features = [col for col in numeric_cols if col != 'Fault']
     x = labeled_data[features]
     y = labeled_data['Fault']
 
-    # 获取故障类别
     classes = np.unique(y)
 
-    # 绘制所有图表
     plot_fault_distribution(fault_distribution)
     plot_feature_distribution(labeled_data, features[:5])
     plot_model_accuracies(accuracies)
@@ -278,7 +269,6 @@ def graphics_drawing(labeled_data, fault_distribution, best_model, best_model_na
     plot_feature_correlation(labeled_data)
     plot_time_series_features(labeled_data, features[:3])
 
-    # 绘制特征重要性图
     plot_feature_importance(best_model, features, best_model_name)
 
     logger.info("所有可视化图表已生成并保存")
