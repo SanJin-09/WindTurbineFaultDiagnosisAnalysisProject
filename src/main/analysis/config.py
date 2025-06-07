@@ -5,10 +5,13 @@ config包含所有配置参数
 """
 import os
 
-# 构建数据目录路径
 CONFIG_FILE_PATH = os.path.abspath(__file__)
 SRC_DIR = os.path.dirname(CONFIG_FILE_PATH)
-PROJECT_ROOT = os.path.dirname(SRC_DIR)
+MAIN_DIR = os.path.dirname(SRC_DIR)
+ANALYSIS_DIR = os.path.dirname(MAIN_DIR)
+PROJECT_ROOT = os.path.dirname(ANALYSIS_DIR)  # 项目根目录
+
+# 数据目录应该在项目根目录下
 DATA_DIR = os.path.join(PROJECT_ROOT, 'data')
 
 # 文件路径使用绝对路径
