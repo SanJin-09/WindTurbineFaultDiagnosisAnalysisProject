@@ -1,46 +1,35 @@
-import os
-import sys
-import pandas as pd
-import numpy as np
-import queue
-import threading
-import time
-import traceback
+"""
+Author: <SUN Runze>
+可交互数据仪表盘
+"""
 import logging
-import tempfile
+import os
+import queue
 import shutil
+import sys
+import tempfile
+import threading
+import traceback
 import zipfile
+
 import matplotlib
+import numpy as np
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 
-matplotlib.use('Agg')  # 使用非交互式后端
+matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 from PIL import Image
 from sklearn.model_selection import train_test_split
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox, scrolledtext
+from src.main.analysis.config import SCADA_DATA_PATH, FAULT_DATA_PATH
 
-# ==========================
-# 配置部分 - 只自动化数据路径
-# ==========================
-# 请根据您的实际数据路径设置以下变量
-SCADA_DATA_PATH = r"D:\WindTurbineFaultDiagnosisAnalysisProject\assets\scada_data.csv"  # SCADA数据路径
-FAULT_DATA_PATH = r"D:\WindTurbineFaultDiagnosisAnalysisProject\assets\fault_data.csv"  # 故障数据路径
-# ==========================
-
-# 确保项目根目录在系统路径中
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-# 导入自定义模块
 try:
-    from src.main.analysis.data_preprocessing import load_data, preprocess_data
-    from src.main.analysis.model_training import train_models
     from src.main.analysis.plot import graphics_drawing
     import src.main.analysis.config as config
 except ImportError:
-    # 如果从不同目录运行，尝试直接导入
-    from data_preprocessing import load_data, preprocess_data
-    from model_training import train_models
     from plot import graphics_drawing
     import config
 
@@ -442,52 +431,38 @@ class FaultDiagnosisApp:
         # 开始进度监控
         self.monitor_analysis()
 
-    def run_analysis(self):
+    def run_analysis(self, scada_data, fault_data, labeled_data, fault_distribution,
+                     best_model, best_model_name, best_accuracy, accuracies, y_pred
+                     ):
         try:
             # 步骤1: 加载数据
             self.log("步骤 1/4: 加载数据...")
-
-            scada_data, fault_data = load_data()
-
             self.log(f"SCADA数据路径: {self.scada_path}")
             self.log(f"故障数据路径: {self.fault_path}")
             self.log(f"加载了 {len(scada_data)} 条SCADA记录和 {len(fault_data)} 条故障记录")
             self.log("数据加载成功!")
-
-            # 步骤2: 数据预处理
             self.log("\n步骤 2/4: 数据预处理...")
-
-            labeled_data, fault_distribution = preprocess_data(scada_data, fault_data)
             self.processed_data = (labeled_data, fault_distribution)
 
             self.log(f"预处理后的数据记录数: {len(labeled_data)}")
             self.log(f"检测到的故障类型数: {len(fault_distribution)}")
             self.log("数据预处理成功!")
-
-            # 步骤3: 模型训练
             self.log("\n步骤 3/4: 模型训练...")
-
-            # 准备特征和标签
             numeric_cols = labeled_data.select_dtypes(include=np.number).columns
             features = [col for col in numeric_cols if col != 'Fault']
-            X = labeled_data[features]
+            x = labeled_data[features]
             y = labeled_data['Fault']
 
             # 拆分数据集
-            X_train, X_test, y_train, y_test = train_test_split(
-                X, y,
+            x_train, x_test, y_train, y_test = train_test_split(
+                x, y,
                 test_size=self.config.TEST_SIZE,
                 random_state=42
             )
 
-            # 调用训练函数
-            best_model, best_model_name, best_accuracy, accuracies, y_test, y_pred = train_models(X_train, y_train,
-                                                                                                  X_test, y_test)
             self.model_results = (best_model, best_model_name, best_accuracy, accuracies, y_test, y_pred)
 
             self.log("\n模型训练成功!")
-
-            # 修复的日志输出 - 不尝试获取keys()
             if hasattr(accuracies, 'keys'):
                 model_names = ", ".join(str(name) for name in accuracies.keys())
                 self.log(f"使用的模型: {model_names}")
@@ -508,8 +483,7 @@ class FaultDiagnosisApp:
             )
             graphics_thread.start()
 
-            # 等待可视化完成
-            graphics_thread.join(timeout=600)  # 设置10分钟超时
+            graphics_thread.join(timeout=600)
             if graphics_thread.is_alive():
                 self.log("警告: 可视化任务超时")
 
@@ -522,9 +496,7 @@ class FaultDiagnosisApp:
             self.log(f"\n⚠️ 错误: {str(e)}")
             self.log(traceback.format_exc())
 
-    def run_visualization(self, labeled_data, fault_distribution, best_model, best_model_name, accuracies, y_test,
-                          y_pred):
-        """在单独线程中运行可视化以避免阻塞主线程"""
+    def run_visualization(self, labeled_data, fault_distribution, best_model, best_model_name, accuracies, y_test, y_pred):
         try:
             self.log("开始生成可视化图表...")
             self.log(f"图表将保存到: {self.images_dir}")
@@ -538,7 +510,6 @@ class FaultDiagnosisApp:
             # 切换到临时目录，因为plot.py可能只保存到当前目录
             os.chdir(self.temp_dir)
 
-            # 调用可视化函数
             graphics_drawing(
                 labeled_data,
                 fault_distribution,
@@ -549,10 +520,8 @@ class FaultDiagnosisApp:
                 y_pred
             )
 
-            # 切换回原始目录
             os.chdir(original_dir)
 
-            # 检查生成的图表文件
             if os.path.exists(self.images_dir):
                 image_files = [f for f in os.listdir(self.images_dir) if f.endswith('.png')]
                 self.log(f"生成图表: {', '.join(image_files)}")
@@ -720,9 +689,9 @@ class FaultDiagnosisApp:
         self.delete_temp_dir()
         self.root.destroy()
 
-
-if __name__ == "__main__":
-    root = tk.Tk()
-    app = FaultDiagnosisApp(root)
-    root.protocol("WM_DELETE_WINDOW", app.on_closing)
-    root.mainloop()
+# 主程序
+def app_start():
+    root_one = tk.Tk()
+    app = FaultDiagnosisApp(root_one)
+    root_one.protocol("WM_DELETE_WINDOW", app.on_closing)
+    root_one.mainloop()
