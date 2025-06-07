@@ -11,7 +11,7 @@ from src.main.analysis.feature_engineering import extract_features, prepare_feat
 from src.main.analysis.model_training import split_data, train_models
 from src.main.analysis.plot import graphics_drawing
 from src.main.analysis.dashboard import app_start
-from utils import save_model, print_summary
+from src.main.utils import save_model, print_summary
 
 
 def main():
