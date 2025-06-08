@@ -13,7 +13,6 @@ from tkinter import ttk, scrolledtext
 
 import numpy as np
 
-# 导入时添加异常处理
 try:
     import seaborn as sns
     HAS_SEABORN = True
@@ -57,13 +56,11 @@ class DataDashboard:
             self.root = root
             self.standalone = False
 
-        # 添加异常处理
         try:
             self.setup_window()
             self.init_variables()
             self.setup_logger()
 
-            # 分步创建UI，避免一次性创建过多组件
             self.create_ui_step_by_step()
 
             print("仪表盘初始化完成")
@@ -87,10 +84,9 @@ class DataDashboard:
     def setup_window(self):
         """设置窗口属性"""
         self.root.title("风力涡轮机故障诊断系统 - 数据仪表盘")
-        self.root.geometry("1400x900")  # 减小初始窗口大小
+        self.root.geometry("1400x900")
         self.root.minsize(1000, 600)
 
-        # 设置窗口居中
         self.root.update_idletasks()
         width = self.root.winfo_reqwidth()
         height = self.root.winfo_reqheight()
@@ -115,12 +111,10 @@ class DataDashboard:
         self.data_loading = False
         self.analysis_running = False
 
-        # UI状态
         self.current_plot = None
         self.plots_available = []
         self.ui_created = False
 
-        # 临时目录
         self.temp_dir = tempfile.mkdtemp()
         self.images_dir = os.path.join(self.temp_dir, 'images')
         os.makedirs(self.images_dir, exist_ok=True)
@@ -134,30 +128,24 @@ class DataDashboard:
             self.logger.info("仪表盘已启动")
         except Exception as e:
             print(f"日志系统初始化失败: {e}")
-            # 创建一个简单的日志替代
             self.logger = None
 
     def create_ui_step_by_step(self):
         """分步创建UI"""
         print("开始创建UI...")
 
-        # 第1步：创建基础框架
         self.create_basic_framework()
         self.root.update_idletasks()
 
-        # 第2步：创建头部
         self.create_header()
         self.root.update_idletasks()
 
-        # 第3步：创建主内容区域
         self.create_main_content()
         self.root.update_idletasks()
 
-        # 第4步：创建状态栏
         self.create_status_bar()
         self.root.update_idletasks()
 
-        # 第5步：启动后台任务
         self.start_background_tasks()
 
         self.ui_created = True
@@ -173,15 +161,13 @@ class DataDashboard:
         header_frame = ttk.Frame(self.main_container)
         header_frame.pack(fill=tk.X, pady=(0, 10))
 
-        # 标题
         title_label = ttk.Label(
             header_frame,
             text="风力涡轮机故障诊断系统",
-            font=('Arial', 18, 'bold')  # 使用更通用的字体
+            font=('Arial', 18, 'bold')
         )
         title_label.pack(pady=10)
 
-        # 控制按钮
         self.create_control_buttons(header_frame)
 
     def create_control_buttons(self, parent):
@@ -189,7 +175,6 @@ class DataDashboard:
         control_frame = ttk.Frame(parent)
         control_frame.pack(fill=tk.X, pady=5)
 
-        # 按钮
         buttons_info = [
             ("加载数据", self.safe_load_data),
             ("开始分析", self.safe_start_analysis),
@@ -202,7 +187,6 @@ class DataDashboard:
             btn = ttk.Button(control_frame, text=text, command=command)
             btn.pack(side=tk.LEFT, padx=5)
 
-        # 进度条
         progress_frame = ttk.Frame(control_frame)
         progress_frame.pack(side=tk.RIGHT, padx=5)
 
@@ -220,15 +204,13 @@ class DataDashboard:
 
     def create_main_content(self):
         """创建主要内容区域"""
-        # 使用简单的Frame而不是PanedWindow（减少复杂性）
+
         content_frame = ttk.Frame(self.main_container)
         content_frame.pack(fill=tk.BOTH, expand=True)
 
-        # 创建Notebook
         self.notebook = ttk.Notebook(content_frame)
         self.notebook.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
 
-        # 创建各个选项卡
         self.create_data_tab()
         self.create_visualization_tab()
         self.create_log_tab()
@@ -238,7 +220,6 @@ class DataDashboard:
         self.data_tab = ttk.Frame(self.notebook)
         self.notebook.add(self.data_tab, text="数据概览")
 
-        # 数据信息显示区域
         info_frame = ttk.LabelFrame(self.data_tab, text="数据信息")
         info_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
 
@@ -250,10 +231,8 @@ class DataDashboard:
         )
         self.data_info.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
 
-        # 初始显示
         self.safe_update_data_info("等待数据加载...")
 
-        # 参数显示
         self.create_parameter_display()
 
     def create_parameter_display(self):
@@ -288,7 +267,6 @@ class DataDashboard:
             error_label.pack(expand=True)
             return
 
-        # 图表控制区域
         control_frame = ttk.Frame(self.viz_tab)
         control_frame.pack(fill=tk.X, padx=5, pady=5)
 
@@ -312,7 +290,6 @@ class DataDashboard:
             command=self.safe_show_plot
         ).pack(side=tk.RIGHT, padx=5)
 
-        # 图表显示区域
         self.create_plot_area()
 
     def create_plot_area(self):
@@ -321,16 +298,13 @@ class DataDashboard:
             plot_frame = ttk.Frame(self.viz_tab)
             plot_frame.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
 
-            # matplotlib图形
             self.fig = Figure(figsize=(10, 6), dpi=100)
             self.canvas = FigureCanvasTkAgg(self.fig, master=plot_frame)
             self.canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
 
-            # 工具栏
             toolbar = NavigationToolbar2Tk(self.canvas, plot_frame)
             toolbar.update()
 
-            # 显示初始图表
             self.show_welcome_plot()
 
         except Exception as e:
@@ -372,7 +346,6 @@ class DataDashboard:
         )
         self.log_display.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
 
-        # 添加清除日志按钮
         button_frame = ttk.Frame(log_frame)
         button_frame.pack(fill=tk.X, padx=5, pady=(0, 5))
 
@@ -388,23 +361,19 @@ class DataDashboard:
         status_label = ttk.Label(status_frame, textvariable=self.status_var)
         status_label.pack(side=tk.LEFT, padx=5)
 
-        # 时间显示
         self.time_var = tk.StringVar()
         time_label = ttk.Label(status_frame, textvariable=self.time_var)
         time_label.pack(side=tk.RIGHT, padx=5)
 
     def start_background_tasks(self):
         """启动后台任务"""
-        # 启动时间更新
+
         self.update_time()
 
-        # 启动日志处理
         self.process_log_queue()
 
-        # 启动UI更新队列处理
         self.process_ui_update_queue()
 
-        # 延迟启动自动数据加载
         self.root.after(2000, self.auto_load_data)
 
     def update_time(self):
@@ -415,7 +384,6 @@ class DataDashboard:
         except Exception as e:
             print(f"时间更新失败: {e}")
 
-        # 继续更新
         self.root.after(1000, self.update_time)
 
     def process_log_queue(self):
@@ -429,7 +397,6 @@ class DataDashboard:
         except Exception as e:
             print(f"日志处理错误: {e}")
 
-        # 继续处理
         self.root.after(200, self.process_log_queue)
 
     def process_ui_update_queue(self):
@@ -444,7 +411,6 @@ class DataDashboard:
         except Exception as e:
             print(f"UI更新错误: {e}")
 
-        # 继续处理
         self.root.after(100, self.process_ui_update_queue)
 
     def auto_load_data(self):
@@ -477,13 +443,11 @@ class DataDashboard:
                 self.safe_log_message("开始加载数据...")
                 scada_data, fault_data = load_data(self.logger)
 
-                # 将结果放入队列，而不是直接更新UI
                 result_data = {
                     'scada': scada_data,
                     'fault': fault_data
                 }
 
-                # 使用队列进行线程安全的UI更新
                 self.ui_update_queue.put(
                     lambda: self.on_data_loaded_safe(True, "数据加载成功", result_data)
                 )
@@ -511,11 +475,9 @@ class DataDashboard:
                 self.safe_update_status("数据加载完成")
                 self.safe_log_message(message)
 
-                # 更新数据概览
                 scada_info = f"SCADA数据: {self.raw_data['scada'].shape[0]}行 x {self.raw_data['scada'].shape[1]}列"
                 fault_info = f"故障数据: {self.raw_data['fault'].shape[0]}行 x {self.raw_data['fault'].shape[1]}列"
 
-                # 数据预览（只显示前几行）
                 scada_preview = self.raw_data['scada'].head().to_string()
 
                 overview_text = f"""数据加载成功！
@@ -539,7 +501,6 @@ SCADA数据预览:
                 self.safe_update_status("数据加载失败")
                 self.safe_log_message(message)
 
-                # 不要在这里显示错误对话框，可能会导致线程问题
                 self.safe_update_data_info(f"数据加载失败:\n{message}")
 
         except Exception as e:
@@ -562,7 +523,6 @@ SCADA数据预览:
 
         def analysis_worker():
             try:
-                # 数据预处理
                 self.safe_log_message("开始数据预处理...")
                 labeled_data, fault_distribution = preprocess_data(
                     self.raw_data['scada'],
@@ -572,25 +532,21 @@ SCADA数据预览:
 
                 self.ui_update_queue.put(lambda: self.progress_var.set(50))
 
-                # 特征工程
                 self.safe_log_message("开始特征工程...")
                 features = extract_features(labeled_data)
                 x, y, le = prepare_features(features)
 
                 self.ui_update_queue.put(lambda: self.progress_var.set(60))
 
-                # 数据分割
                 self.safe_log_message("分割数据集...")
                 x_train, x_test, y_train, y_test = split_data(x, y)
 
-                # 特征选择
                 x_train_selected, x_test_selected, scaler, selector, important_features = select_features(
                     x_train, y_train, x_test
                 )
 
                 self.ui_update_queue.put(lambda: self.progress_var.set(80))
 
-                # 模型训练
                 self.safe_log_message("开始模型训练...")
                 best_model, best_model_name, best_accuracy, accuracies, y_test, y_pred = train_models(
                     x_train_selected, y_train, x_test_selected, y_test
@@ -598,7 +554,6 @@ SCADA数据预览:
 
                 self.ui_update_queue.put(lambda: self.progress_var.set(90))
 
-                # 保存结果
                 results = {
                     'processed_data': labeled_data,
                     'features_data': features,
@@ -645,10 +600,8 @@ SCADA数据预览:
                 self.safe_update_status("分析完成")
                 self.safe_log_message(message)
 
-                # 更新结果显示
                 self.update_results_info()
 
-                # 自动显示第一个图表
                 if HAS_MATPLOTLIB:
                     self.plot_combo.current(0)
                     self.safe_show_plot()
@@ -688,7 +641,6 @@ SCADA数据预览:
             for fault, count in self.model_results['fault_distribution'].items():
                 result_text += f"• {fault}: {count}\n"
 
-            # 更新数据信息显示
             current_info = self.data_info.get(1.0, tk.END)
             updated_info = current_info + "\n" + "="*50 + "\n" + result_text
 
@@ -712,7 +664,6 @@ SCADA数据预览:
             return
 
         try:
-            # 清除当前图表
             self.fig.clear()
 
             if plot_type == "故障分布图":
@@ -733,7 +684,6 @@ SCADA数据预览:
 
         except Exception as e:
             self.safe_log_message(f"图表显示错误: {str(e)}")
-            # 显示错误信息
             ax = self.fig.add_subplot(111)
             ax.text(0.5, 0.5, f"图表显示错误:\n{str(e)}",
                     ha='center', va='center', transform=ax.transAxes)
@@ -751,7 +701,6 @@ SCADA数据预览:
         ax.set_xticks(range(len(fault_dist)))
         ax.set_xticklabels(fault_dist.index, rotation=45, ha='right')
 
-        # 添加数值标签
         for bar, value in zip(bars, fault_dist.values):
             height = bar.get_height()
             ax.text(bar.get_x() + bar.get_width()/2., height + height*0.01,
@@ -814,10 +763,8 @@ SCADA数据预览:
 
         cm = confusion_matrix(y_test, y_pred)
 
-        # 手动绘制热力图（不依赖seaborn）
         im = ax.imshow(cm, interpolation='nearest', cmap=plt.cm.Blues)
 
-        # 添加文本注释
         thresh = cm.max() / 2.
         for i in range(cm.shape[0]):
             for j in range(cm.shape[1]):
@@ -840,7 +787,6 @@ SCADA数据预览:
             importances = model.feature_importances_
             features = self.model_results['important_features'][:10]
 
-            # 取对应的重要性值
             importance_values = importances[:len(features)]
 
             y_pos = np.arange(len(features))
@@ -852,7 +798,6 @@ SCADA数据预览:
             ax.set_title('特征重要性排序')
             ax.grid(True, alpha=0.3, axis='x')
 
-            # 添加数值标签
             for bar, value in zip(bars, importance_values):
                 width = bar.get_width()
                 ax.text(width + 0.001, bar.get_y() + bar.get_height()/2.,
@@ -872,7 +817,6 @@ SCADA数据预览:
                    ha='center', va='center', transform=ax.transAxes)
             return
 
-        # 取前1000个数据点
         data_sample = self.processed_data.head(1000)
         numeric_cols = data_sample.select_dtypes(include=[np.number]).columns[:3]
 
@@ -925,7 +869,6 @@ SCADA数据预览:
     def reset_dashboard(self):
         """重置仪表盘"""
         try:
-            # 重置数据
             self.raw_data = None
             self.processed_data = None
             self.features_data = None
@@ -934,11 +877,9 @@ SCADA数据预览:
             self.data_loading = False
             self.analysis_running = False
 
-            # 重置进度
             self.progress_var.set(0)
             self.safe_update_status("系统已重置")
 
-            # 清空显示
             self.safe_update_data_info("系统已重置，等待重新加载数据...")
 
             if HAS_MATPLOTLIB:
@@ -1046,7 +987,6 @@ SCADA数据预览:
             print(f"关闭处理错误: {e}")
 
 
-# 兼容性函数
 def create_dashboard(master=None):
     """创建并返回仪表盘实例"""
     return DataDashboard(master)
