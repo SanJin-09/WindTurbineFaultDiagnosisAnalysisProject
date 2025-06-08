@@ -1,697 +1,880 @@
 """
-Author: <SUN Runze>
-可交互数据仪表盘
+Author: <WU Xinyan>
+风力涡轮机故障诊断交互式数据仪表盘
+模块化设计，集成到主程序中
 """
-import logging
-import os
 import queue
 import shutil
-import sys
 import tempfile
 import threading
-import traceback
-import zipfile
-
-import matplotlib
-import numpy as np
-from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
-
-matplotlib.use('Agg')
-import matplotlib.pyplot as plt
-from PIL import Image
-from sklearn.model_selection import train_test_split
 import tkinter as tk
-from tkinter import ttk, filedialog, messagebox, scrolledtext
-from src.main.analysis.config import SCADA_DATA_PATH, FAULT_DATA_PATH
+from datetime import datetime
+from tkinter import ttk, messagebox, scrolledtext
+import numpy as np
+import seaborn as sns
+from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+from matplotlib.figure import Figure
+from sklearn.metrics import confusion_matrix
 
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
-try:
-    from src.main.analysis.plot import graphics_drawing
-    import src.main.analysis.config as config
-except ImportError:
-    from plot import graphics_drawing
-    import config
+from src.main.analysis.config import *
+from src.main.analysis.data_preprocessing import load_data, preprocess_data
+from src.main.analysis.feature_engineering import extract_features, prepare_features, select_features
+from src.main.analysis.logging_utils import get_logger
+from src.main.analysis.model_training import split_data, train_models
+from src.main.analysis.plot import graphics_drawing
 
 
-class FaultDiagnosisApp:
-    def __init__(self, root):
-        self.root = root
-        self.root.title("风力涡轮机故障诊断系统")
-        self.root.geometry("1200x800")
-        self.root.configure(bg='#f5f9ff')
+class DataDashboard:
+    """风力涡轮机故障诊断数据仪表盘"""
 
-        # 初始化状态
+    def __init__(self, root=None):
+        """初始化仪表盘"""
+        if root is None:
+            self.root = tk.Tk()
+            self.standalone = True
+        else:
+            self.root = root
+            self.standalone = False
+
+        self.setup_window()
+        self.init_variables()
+        self.setup_logger()
+        self.create_ui()
+
+        # 自动加载数据（如果文件存在）
+        self.auto_load_data()
+
+    def setup_window(self):
+        """设置窗口属性"""
+        self.root.title("风力涡轮机故障诊断系统 - 数据仪表盘")
+        self.root.geometry("1600x1000")
+        self.root.minsize(1200, 800)
+
+    def init_variables(self):
+        """初始化变量"""
+        self.logger = None
+        self.log_queue = queue.Queue()
+
+        # 数据相关
+        self.raw_data = None
         self.processed_data = None
+        self.features_data = None
         self.model_results = None
-        self.analysis_started = False
         self.analysis_complete = False
-        self.log_output = ""
-        self.error_occurred = False
-        self.error_message = ""
-        self.scada_path = SCADA_DATA_PATH  # 使用预设的SCADA路径
-        self.fault_path = FAULT_DATA_PATH  # 使用预设的故障路径
-        self.config = config
-        self.log_queue = queue.Queue()  # 初始化日志队列
 
-        # 创建临时目录
-        self.temp_dir = self.create_temp_dir()
-        self.images_dir = os.path.join(self.temp_dir, "images")
+        # UI状态
+        self.current_plot = None
+        self.plots_available = []
+
+        # 临时目录
+        self.temp_dir = tempfile.mkdtemp()
+        self.images_dir = os.path.join(self.temp_dir, 'images')
         os.makedirs(self.images_dir, exist_ok=True)
 
-        # 创建UI
-        self.create_widgets()
+    def setup_logger(self):
+        """设置日志系统"""
+        self.logger = get_logger('dashboard')
+        self.logger.info("仪表盘已启动")
 
-        # 日志捕获
-        self.setup_logging()
+    def create_ui(self):
+        """创建用户界面"""
+        # 主容器
+        self.main_container = ttk.Frame(self.root)
+        self.main_container.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
 
-        # 在UI中显示预设路径
-        self.scada_path_var.set(SCADA_DATA_PATH)
-        self.fault_path_var.set(FAULT_DATA_PATH)
+        self.create_header()
+        self.create_main_content()
+        self.create_status_bar()
 
-        # 开始日志队列处理
+        # 启动日志处理
         self.process_log_queue()
 
-    def create_temp_dir(self):
-        temp_dir = tempfile.mkdtemp()
-        self.log_queue.put(f"创建临时目录: {temp_dir}")
-        return temp_dir
-
-    def delete_temp_dir(self):
-        if os.path.exists(self.temp_dir):
-            shutil.rmtree(self.temp_dir)
-            self.log_queue.put(f"删除临时目录: {self.temp_dir}")
-
-    def setup_logging(self):
-        self.log_handler = logging.StreamHandler()
-        formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-        self.log_handler.setFormatter(formatter)
-        self.log_handler.setStream(self)  # 设置自定义流
-
-        # 配置根日志器
-        root_logger = logging.getLogger()
-        root_logger.setLevel(logging.INFO)
-        root_logger.addHandler(self.log_handler)
-
-    def log(self, message):
-        """线程安全的日志记录方法"""
-        self.log_queue.put(message)
-
-    def process_log_queue(self):
-        """处理日志队列中的消息"""
-        try:
-            while not self.log_queue.empty():
-                message = self.log_queue.get_nowait()
-                self.log_output += message + "\n"
-                self.update_log_display()
-        except queue.Empty:
-            pass
-
-        # 每200毫秒检查一次队列
-        self.root.after(200, self.process_log_queue)
-
-    def write(self, message):
-        """实现文件类接口用于日志捕获"""
-        if message.strip():  # 避免空消息
-            self.log_queue.put(message.strip())
-
-    def flush(self):
-        pass
-
-    def update_log_display(self):
-        if hasattr(self, 'log_text'):
-            self.log_text.configure(state='normal')
-            self.log_text.delete('1.0', tk.END)
-            self.log_text.insert(tk.END, self.log_output)
-            self.log_text.configure(state='disabled')
-            self.log_text.see(tk.END)  # 滚动到末尾
-
-    def download_results(self):
-        """下载分析结果为ZIP文件"""
-        if not self.analysis_complete or not self.processed_data or not self.model_results:
-            return
-
-        # 打开文件对话框让用户选择保存位置
-        zip_path = filedialog.asksaveasfilename(
-            title="保存分析结果",
-            defaultextension=".zip",
-            filetypes=(("ZIP压缩文件", "*.zip"), ("所有文件", "*.*"))
-        )
-
-        if not zip_path:
-            return
-
-        try:
-            with zipfile.ZipFile(zip_path, 'w') as zipf:
-                # 添加所有图像
-                if os.path.exists(self.images_dir):
-                    for file in os.listdir(self.images_dir):
-                        if file.endswith('.png'):
-                            file_path = os.path.join(self.images_dir, file)
-                            zipf.write(file_path, os.path.join("images", file))
-                else:
-                    self.log("警告: 图表目录不存在")
-
-                # 添加处理后的数据
-                if self.processed_data:
-                    labeled_data, _ = self.processed_data
-                    data_path = os.path.join(self.temp_dir, "processed_data.csv")
-                    labeled_data.to_csv(data_path, index=False)
-                    zipf.write(data_path, "processed_data.csv")
-                else:
-                    self.log("警告: 处理后的数据不可用")
-
-                # 添加日志文件
-                log_path = os.path.join(self.temp_dir, "analysis_log.txt")
-                with open(log_path, "w") as log_file:
-                    log_file.write(self.log_output)
-                zipf.write(log_path, "analysis_log.txt")
-
-                # 添加参数配置
-                config_path = os.path.join(self.temp_dir, "config_summary.txt")
-                with open(config_path, "w") as config_file:
-                    config_file.write(f"SCADA数据路径: {self.scada_path}\n")
-                    config_file.write(f"故障数据路径: {self.fault_path}\n")
-                    config_file.write(f"故障前时间窗口: {self.config.WINDOW_BEFORE}小时\n")
-                    config_file.write(f"故障后时间窗口: {self.config.WINDOW_AFTER}小时\n")
-                    config_file.write(f"测试集比例: {self.config.TEST_SIZE}\n")
-                    config_file.write(f"随机森林树数量: {self.config.RF_N_ESTIMATORS}\n")
-                    config_file.write(f"梯度提升树数量: {self.config.GB_N_ESTIMATORS}\n")
-                zipf.write(config_path, "config_summary.txt")
-
-            messagebox.showinfo("下载完成", f"分析结果已保存到:\n{zip_path}")
-            self.log(f"分析结果已导出到: {zip_path}")
-
-        except Exception as e:
-            messagebox.showerror("导出错误", f"导出结果时发生错误: {str(e)}")
-            self.log(f"⚠️ 导出结果时发生错误: {str(e)}")
-
-    def create_widgets(self):
-        # 创建主框架
-        main_frame = ttk.Frame(self.root)
-        main_frame.pack(fill=tk.BOTH, expand=True, padx=20, pady=20)
+    def create_header(self):
+        """创建头部区域"""
+        header_frame = ttk.Frame(self.main_container)
+        header_frame.pack(fill=tk.X, pady=(0, 10))
 
         # 标题
-        title_label = ttk.Label(main_frame, text="风力涡轮机故障诊断系统",
-                                font=("Helvetica", 24, "bold"), foreground="#1e3c72")
-        title_label.pack(pady=(0, 10))
+        title_label = ttk.Label(
+            header_frame,
+            text="风力涡轮机故障诊断系统",
+            font=('Microsoft YaHei', 20, 'bold')
+        )
+        title_label.pack(pady=10)
 
-        subtitle_label = ttk.Label(main_frame, text="使用预设数据路径进行故障诊断分析",
-                                   font=("Helvetica", 14), foreground="#2a5298")
-        subtitle_label.pack(pady=(0, 20))
+        # 控制按钮
+        control_frame = ttk.Frame(header_frame)
+        control_frame.pack(fill=tk.X, pady=5)
 
-        # 创建分割布局
-        paned_window = ttk.PanedWindow(main_frame, orient=tk.HORIZONTAL)
-        paned_window.pack(fill=tk.BOTH, expand=True)
+        ttk.Button(
+            control_frame,
+            text="加载数据",
+            command=self.load_data_async,
+            style='Accent.TButton'
+        ).pack(side=tk.LEFT, padx=5)
 
-        # 左侧面板 - 控制面板
-        control_frame = ttk.LabelFrame(paned_window, text="数据上传和参数设置")
-        control_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
-        paned_window.add(control_frame, weight=30)
+        ttk.Button(
+            control_frame,
+            text="开始分析",
+            command=self.start_analysis,
+            style='Accent.TButton'
+        ).pack(side=tk.LEFT, padx=5)
 
-        # 右侧面板 - 结果展示
-        result_frame = ttk.Frame(paned_window)
-        result_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
-        paned_window.add(result_frame, weight=70)
+        ttk.Button(
+            control_frame,
+            text="刷新图表",
+            command=self.refresh_plots
+        ).pack(side=tk.LEFT, padx=5)
 
-        # 填充控制面板
-        self.create_control_panel(control_frame)
+        ttk.Button(
+            control_frame,
+            text="导出结果",
+            command=self.export_results
+        ).pack(side=tk.LEFT, padx=5)
 
-        # 填充结果面板
-        self.create_result_panel(result_frame)
+        # 进度条
+        self.progress_var = tk.DoubleVar()
+        self.progress_bar = ttk.Progressbar(
+            control_frame,
+            variable=self.progress_var,
+            maximum=100,
+            length=200
+        )
+        self.progress_bar.pack(side=tk.RIGHT, padx=5)
 
-        # 状态栏
-        self.status_var = tk.StringVar()
-        self.status_var.set("就绪")
-        status_bar = ttk.Label(self.root, textvariable=self.status_var, relief=tk.SUNKEN, anchor=tk.W)
-        status_bar.pack(side=tk.BOTTOM, fill=tk.X)
+        self.progress_label = ttk.Label(control_frame, text="就绪")
+        self.progress_label.pack(side=tk.RIGHT, padx=5)
 
-    def create_control_panel(self, parent):
-        # 文件路径显示
-        path_frame = ttk.LabelFrame(parent, text="数据路径")
-        path_frame.pack(fill=tk.X, padx=10, pady=10)
+    def create_main_content(self):
+        """创建主要内容区域"""
+        # 使用PanedWindow分割界面
+        self.paned_window = ttk.PanedWindow(self.main_container, orient=tk.HORIZONTAL)
+        self.paned_window.pack(fill=tk.BOTH, expand=True)
 
-        # SCADA数据路径
-        scada_frame = ttk.Frame(path_frame)
-        scada_frame.pack(fill=tk.X, padx=10, pady=5)
+        # 左侧面板
+        self.create_left_panel()
 
-        ttk.Label(scada_frame, text="SCADA数据路径:").pack(side=tk.LEFT, padx=(0, 5))
-        self.scada_path_var = tk.StringVar()
-        scada_entry = ttk.Entry(scada_frame, textvariable=self.scada_path_var, state='readonly', width=50)
-        scada_entry.pack(side=tk.LEFT, fill=tk.X, expand=True)
+        # 右侧面板
+        self.create_right_panel()
 
-        # 故障数据路径
-        fault_frame = ttk.Frame(path_frame)
-        fault_frame.pack(fill=tk.X, padx=10, pady=(5, 10))
+    def create_left_panel(self):
+        """创建左侧控制面板"""
+        left_frame = ttk.Frame(self.paned_window)
+        left_frame.pack(fill=tk.BOTH, expand=True)
+        self.paned_window.add(left_frame, weight=25)
 
-        ttk.Label(fault_frame, text="故障数据路径:").pack(side=tk.LEFT, padx=(0, 5))
-        self.fault_path_var = tk.StringVar()
-        fault_entry = ttk.Entry(fault_frame, textvariable=self.fault_path_var, state='readonly', width=50)
-        fault_entry.pack(side=tk.LEFT, fill=tk.X, expand=True)
+        # 数据概览
+        self.create_data_overview(left_frame)
 
-        # 参数设置部分
-        params_frame = ttk.LabelFrame(parent, text="分析参数")
-        params_frame.pack(fill=tk.X, padx=10, pady=10)
-
-        # 故障前时间窗口
-        window_before_frame = ttk.Frame(params_frame)
-        window_before_frame.pack(fill=tk.X, padx=10, pady=5)
-        ttk.Label(window_before_frame, text="故障前时间窗口(小时):").pack(side=tk.LEFT)
-        self.window_before_var = tk.DoubleVar(value=self.config.WINDOW_BEFORE)
-        ttk.Scale(window_before_frame, from_=0.1, to=24.0, variable=self.window_before_var,
-                  command=lambda v: self.update_var_display(self.window_before_var, v)).pack(side=tk.LEFT, padx=5,
-                                                                                             fill=tk.X, expand=True)
-        self.window_before_display = ttk.Label(window_before_frame, text=str(self.config.WINDOW_BEFORE))
-        self.window_before_display.pack(side=tk.LEFT)
-
-        # 故障后时间窗口
-        window_after_frame = ttk.Frame(params_frame)
-        window_after_frame.pack(fill=tk.X, padx=10, pady=5)
-        ttk.Label(window_after_frame, text="故障后时间窗口(小时):").pack(side=tk.LEFT)
-        self.window_after_var = tk.DoubleVar(value=self.config.WINDOW_AFTER)
-        ttk.Scale(window_after_frame, from_=0.1, to=6.0, variable=self.window_after_var,
-                  command=lambda v: self.update_var_display(self.window_after_var, v)).pack(side=tk.LEFT, padx=5,
-                                                                                            fill=tk.X, expand=True)
-        self.window_after_display = ttk.Label(window_after_frame, text=str(self.config.WINDOW_AFTER))
-        self.window_after_display.pack(side=tk.LEFT)
-
-        # 测试集比例
-        test_size_frame = ttk.Frame(params_frame)
-        test_size_frame.pack(fill=tk.X, padx=10, pady=5)
-        ttk.Label(test_size_frame, text="测试集比例:").pack(side=tk.LEFT)
-        self.test_size_var = tk.DoubleVar(value=self.config.TEST_SIZE)
-        ttk.Scale(test_size_frame, from_=0.1, to=0.5, variable=self.test_size_var,
-                  command=lambda v: self.update_var_display(self.test_size_var, v)).pack(side=tk.LEFT, padx=5,
-                                                                                         fill=tk.X, expand=True)
-        self.test_size_display = ttk.Label(test_size_frame, text=str(self.config.TEST_SIZE))
-        self.test_size_display.pack(side=tk.LEFT)
-
-        # 随机森林树数量
-        rf_frame = ttk.Frame(params_frame)
-        rf_frame.pack(fill=tk.X, padx=10, pady=5)
-        ttk.Label(rf_frame, text="随机森林树数量:").pack(side=tk.LEFT)
-        self.rf_var = tk.IntVar(value=self.config.RF_N_ESTIMATORS)
-        ttk.Scale(rf_frame, from_=10, to=500, variable=self.rf_var,
-                  command=lambda v: self.update_var_display(self.rf_var, v)).pack(side=tk.LEFT, padx=5, fill=tk.X,
-                                                                                  expand=True)
-        self.rf_display = ttk.Label(rf_frame, text=str(self.config.RF_N_ESTIMATORS))
-        self.rf_display.pack(side=tk.LEFT)
-
-        # 梯度提升树数量
-        gb_frame = ttk.Frame(params_frame)
-        gb_frame.pack(fill=tk.X, padx=10, pady=(5, 10))
-        ttk.Label(gb_frame, text="梯度提升树数量:").pack(side=tk.LEFT)
-        self.gb_var = tk.IntVar(value=self.config.GB_N_ESTIMATORS)
-        ttk.Scale(gb_frame, from_=10, to=500, variable=self.gb_var,
-                  command=lambda v: self.update_var_display(self.gb_var, v)).pack(side=tk.LEFT, padx=5, fill=tk.X,
-                                                                                  expand=True)
-        self.gb_display = ttk.Label(gb_frame, text=str(self.config.GB_N_ESTIMATORS))
-        self.gb_display.pack(side=tk.LEFT)
-
-        # 开始分析按钮
-        start_frame = ttk.Frame(parent)
-        start_frame.pack(fill=tk.X, padx=10, pady=10)
-        self.start_button = ttk.Button(start_frame, text="开始分析", command=self.start_analysis)
-        self.start_button.pack(fill=tk.X)
-
-        # 下载结果按钮
-        download_frame = ttk.Frame(parent)
-        download_frame.pack(fill=tk.X, padx=10, pady=10)
-        self.download_button = ttk.Button(download_frame, text="下载分析结果", command=self.download_results,
-                                          state=tk.DISABLED)
-        self.download_button.pack(fill=tk.X)
+        # 参数控制
+        self.create_parameter_control(left_frame)
 
         # 日志显示
-        log_frame = ttk.LabelFrame(parent, text="日志输出")
-        log_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+        self.create_log_display(left_frame)
 
-        self.log_text = scrolledtext.ScrolledText(log_frame, wrap=tk.WORD, height=10)
-        self.log_text.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
-        self.log_text.configure(state='disabled')
+    def create_right_panel(self):
+        """创建右侧显示面板"""
+        right_frame = ttk.Frame(self.paned_window)
+        right_frame.pack(fill=tk.BOTH, expand=True)
+        self.paned_window.add(right_frame, weight=75)
 
-    def create_result_panel(self, parent):
-        # 创建笔记本样式的结果面板
-        self.notebook = ttk.Notebook(parent)
-        self.notebook.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+        # 选项卡
+        self.notebook = ttk.Notebook(right_frame)
+        self.notebook.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
 
-        # 结果摘要标签页
-        self.summary_tab = ttk.Frame(self.notebook)
-        self.notebook.add(self.summary_tab, text="结果摘要")
+        # 数据概览选项卡
+        self.create_data_tab()
 
-        # 数据卡片
-        self.data_frame = ttk.LabelFrame(self.summary_tab, text="数据摘要")
-        self.data_frame.pack(fill=tk.X, padx=10, pady=10)
+        # 可视化选项卡
+        self.create_visualization_tab()
 
-        # 模型性能卡片
-        self.model_frame = ttk.LabelFrame(self.summary_tab, text="模型性能")
-        self.model_frame.pack(fill=tk.X, padx=10, pady=10)
+        # 模型结果选项卡
+        self.create_results_tab()
 
-        # 故障分布卡片
-        self.fault_frame = ttk.LabelFrame(self.summary_tab, text="故障分布")
-        self.fault_frame.pack(fill=tk.X, padx=10, pady=10)
+    def create_data_overview(self, parent):
+        """创建数据概览区域"""
+        overview_frame = ttk.LabelFrame(parent, text="数据概览")
+        overview_frame.pack(fill=tk.X, padx=5, pady=5)
 
-        # 可视化标签页
-        self.visualization_tab = ttk.Frame(self.notebook)
-        self.notebook.add(self.visualization_tab, text="可视化")
+        self.data_info = scrolledtext.ScrolledText(
+            overview_frame,
+            height=8,
+            wrap=tk.WORD,
+            state=tk.DISABLED
+        )
+        self.data_info.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
 
-        # 创建画布用于显示图表
-        self.canvas_frame = ttk.Frame(self.visualization_tab)
-        self.canvas_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+        # 初始显示
+        self.update_data_overview("等待数据加载...")
 
-        self.fig = plt.Figure(figsize=(10, 8), dpi=100)
-        self.canvas = FigureCanvasTkAgg(self.fig, master=self.canvas_frame)
+    def create_parameter_control(self, parent):
+        """创建参数控制区域"""
+        param_frame = ttk.LabelFrame(parent, text="分析参数")
+        param_frame.pack(fill=tk.X, padx=5, pady=5)
+
+        # 时间窗口参数
+        ttk.Label(param_frame, text=f"故障前时间窗口: {WINDOW_BEFORE}小时").pack(anchor=tk.W, padx=5, pady=2)
+        ttk.Label(param_frame, text=f"故障后时间窗口: {WINDOW_AFTER}小时").pack(anchor=tk.W, padx=5, pady=2)
+
+        # 模型参数
+        ttk.Label(param_frame, text=f"测试集比例: {TEST_SIZE}").pack(anchor=tk.W, padx=5, pady=2)
+        ttk.Label(param_frame, text=f"随机森林估算器: {RF_N_ESTIMATORS}").pack(anchor=tk.W, padx=5, pady=2)
+        ttk.Label(param_frame, text=f"梯度提升估算器: {GB_N_ESTIMATORS}").pack(anchor=tk.W, padx=5, pady=2)
+
+    def create_log_display(self, parent):
+        """创建日志显示区域"""
+        log_frame = ttk.LabelFrame(parent, text="系统日志")
+        log_frame.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+
+        self.log_display = scrolledtext.ScrolledText(
+            log_frame,
+            height=10,
+            wrap=tk.WORD,
+            state=tk.DISABLED
+        )
+        self.log_display.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+
+    def create_data_tab(self):
+        """创建数据选项卡"""
+        self.data_tab = ttk.Frame(self.notebook)
+        self.notebook.add(self.data_tab, text="数据表格")
+
+        # 数据表格框架
+        table_frame = ttk.Frame(self.data_tab)
+        table_frame.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+
+        # 表格选择
+        selector_frame = ttk.Frame(table_frame)
+        selector_frame.pack(fill=tk.X, pady=(0, 5))
+
+        ttk.Label(selector_frame, text="选择数据表:").pack(side=tk.LEFT, padx=5)
+
+        self.table_var = tk.StringVar()
+        self.table_combo = ttk.Combobox(
+            selector_frame,
+            textvariable=self.table_var,
+            values=["原始数据", "预处理数据", "特征数据"],
+            state="readonly"
+        )
+        self.table_combo.pack(side=tk.LEFT, padx=5, fill=tk.X, expand=True)
+        self.table_combo.bind('<<ComboboxSelected>>', self.on_table_select)
+
+        # 数据表格
+        self.create_data_table(table_frame)
+
+    def create_data_table(self, parent):
+        """创建数据表格"""
+        # Treeview用于显示数据
+        columns = ('索引', '列1', '列2', '列3', '列4', '列5')
+
+        self.data_tree = ttk.Treeview(parent, columns=columns, show='headings', height=15)
+
+        # 设置列标题
+        for col in columns:
+            self.data_tree.heading(col, text=col)
+            self.data_tree.column(col, width=100, anchor=tk.W)
+
+        # 滚动条
+        tree_scroll_v = ttk.Scrollbar(parent, orient=tk.VERTICAL, command=self.data_tree.yview)
+        tree_scroll_h = ttk.Scrollbar(parent, orient=tk.HORIZONTAL, command=self.data_tree.xview)
+
+        self.data_tree.configure(yscrollcommand=tree_scroll_v.set, xscrollcommand=tree_scroll_h.set)
+
+        # 布局
+        self.data_tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        tree_scroll_v.pack(side=tk.RIGHT, fill=tk.Y)
+        tree_scroll_h.pack(side=tk.BOTTOM, fill=tk.X)
+
+    def create_visualization_tab(self):
+        """创建可视化选项卡"""
+        self.viz_tab = ttk.Frame(self.notebook)
+        self.notebook.add(self.viz_tab, text="数据可视化")
+
+        # 图表控制区域
+        control_frame = ttk.Frame(self.viz_tab)
+        control_frame.pack(fill=tk.X, padx=5, pady=5)
+
+        ttk.Label(control_frame, text="选择图表:").pack(side=tk.LEFT, padx=5)
+
+        self.plot_var = tk.StringVar()
+        self.plot_combo = ttk.Combobox(
+            control_frame,
+            textvariable=self.plot_var,
+            values=[
+                "故障分布图", "特征分布图", "模型准确率对比",
+                "混淆矩阵", "特征重要性", "时间序列特征"
+            ],
+            state="readonly"
+        )
+        self.plot_combo.pack(side=tk.LEFT, padx=5, fill=tk.X, expand=True)
+        self.plot_combo.bind('<<ComboboxSelected>>', self.on_plot_select)
+
+        ttk.Button(
+            control_frame,
+            text="显示图表",
+            command=self.show_selected_plot
+        ).pack(side=tk.RIGHT, padx=5)
+
+        # 图表显示区域
+        self.create_plot_area()
+
+    def create_plot_area(self):
+        """创建图表显示区域"""
+        plot_frame = ttk.Frame(self.viz_tab)
+        plot_frame.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+
+        # matplotlib图形
+        self.fig = Figure(figsize=(12, 8), dpi=100)
+        self.canvas = FigureCanvasTkAgg(self.fig, master=plot_frame)
         self.canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
 
-        # 图表选择
-        self.plot_selector_frame = ttk.Frame(self.visualization_tab)
-        self.plot_selector_frame.pack(fill=tk.X, padx=10, pady=5)
+        # 工具栏
+        from matplotlib.backends.backend_tkagg import NavigationToolbar2Tk
+        toolbar = NavigationToolbar2Tk(self.canvas, plot_frame)
+        toolbar.update()
 
-        ttk.Label(self.plot_selector_frame, text="选择图表:").pack(side=tk.LEFT)
-        self.plot_var = tk.StringVar()
-        plots = ["故障分布", "特征分布", "模型准确率对比", "特征重要性",
-                 "特征相关性", "时间序列特征", "混淆矩阵", "特征随时间变化"]
-        self.plot_selector = ttk.Combobox(self.plot_selector_frame, textvariable=self.plot_var, values=plots)
-        self.plot_selector.pack(side=tk.LEFT, padx=5, fill=tk.X, expand=True)
-        self.plot_selector.current(0)
+    def create_results_tab(self):
+        """创建结果选项卡"""
+        self.results_tab = ttk.Frame(self.notebook)
+        self.notebook.add(self.results_tab, text="分析结果")
 
-        # 修复：确保方法存在后再绑定事件
-        if hasattr(self, 'show_selected_plot'):
-            self.plot_selector.bind('<<ComboboxSelected>>', self.show_selected_plot)
+        # 结果显示区域
+        results_frame = ttk.Frame(self.results_tab)
+        results_frame.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+
+        # 模型性能
+        perf_frame = ttk.LabelFrame(results_frame, text="模型性能")
+        perf_frame.pack(fill=tk.X, padx=5, pady=5)
+
+        self.performance_info = scrolledtext.ScrolledText(
+            perf_frame,
+            height=8,
+            wrap=tk.WORD,
+            state=tk.DISABLED
+        )
+        self.performance_info.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+
+        # 特征重要性
+        feat_frame = ttk.LabelFrame(results_frame, text="重要特征")
+        feat_frame.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+
+        self.features_info = scrolledtext.ScrolledText(
+            feat_frame,
+            height=10,
+            wrap=tk.WORD,
+            state=tk.DISABLED
+        )
+        self.features_info.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+
+    def create_status_bar(self):
+        """创建状态栏"""
+        status_frame = ttk.Frame(self.main_container)
+        status_frame.pack(fill=tk.X, pady=(5, 0))
+
+        self.status_var = tk.StringVar(value="系统就绪")
+        status_label = ttk.Label(status_frame, textvariable=self.status_var)
+        status_label.pack(side=tk.LEFT, padx=5)
+
+        # 时间显示
+        self.time_var = tk.StringVar()
+        time_label = ttk.Label(status_frame, textvariable=self.time_var)
+        time_label.pack(side=tk.RIGHT, padx=5)
+
+        self.update_time()
+
+    def update_time(self):
+        """更新时间显示"""
+        current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        self.time_var.set(current_time)
+        self.root.after(1000, self.update_time)
+
+    def auto_load_data(self):
+        """自动加载数据"""
+        if os.path.exists(SCADA_DATA_PATH) and os.path.exists(FAULT_DATA_PATH):
+            self.log_message("发现数据文件，自动加载中...")
+            self.root.after(1000, self.load_data_async)
         else:
-            # 设置一个占位函数
-            def placeholder(event):
-                messagebox.showwarning("功能未就绪", "图表选择功能尚未准备就绪")
+            self.log_message("未找到数据文件，请手动加载数据")
 
-            self.plot_selector.bind('<<ComboboxSelected>>', placeholder)
+    def load_data_async(self):
+        """异步加载数据"""
+        self.update_status("正在加载数据...")
+        self.progress_var.set(10)
 
-        ttk.Button(self.plot_selector_frame, text="显示", command=self.show_selected_plot).pack(side=tk.LEFT)
+        def load_worker():
+            try:
+                self.log_message("开始加载数据...")
+                scada_data, fault_data = load_data(self.logger)
 
-    def update_var_display(self, var, value):
-        """更新滑块值显示"""
-        if var == self.window_before_var:
-            self.window_before_display.config(text=f"{float(value):.2f}")
-        elif var == self.window_after_var:
-            self.window_after_display.config(text=f"{float(value):.2f}")
-        elif var == self.test_size_var:
-            self.test_size_display.config(text=f"{float(value):.2f}")
-        elif var == self.rf_var:
-            self.rf_display.config(text=str(int(float(value))))
-        elif var == self.gb_var:
-            self.gb_display.config(text=str(int(float(value))))
+                self.raw_data = {
+                    'scada': scada_data,
+                    'fault': fault_data
+                }
+
+                self.root.after(0, lambda: self.on_data_loaded(True, "数据加载成功"))
+
+            except Exception as e:
+                self.root.after(0, lambda: self.on_data_loaded(False, f"数据加载失败: {str(e)}"))
+
+        thread = threading.Thread(target=load_worker, daemon=True)
+        thread.start()
+
+    def on_data_loaded(self, success, message):
+        """数据加载完成回调"""
+        if success:
+            self.progress_var.set(30)
+            self.update_status("数据加载完成")
+            self.log_message(message)
+
+            # 更新数据概览
+            scada_info = f"SCADA数据: {self.raw_data['scada'].shape[0]}行 x {self.raw_data['scada'].shape[1]}列"
+            fault_info = f"故障数据: {self.raw_data['fault'].shape[0]}行 x {self.raw_data['fault'].shape[1]}列"
+
+            overview_text = f"{scada_info}\n{fault_info}\n\n数据加载时间: {datetime.now().strftime('%H:%M:%S')}"
+            self.update_data_overview(overview_text)
+
+            # 更新数据表格
+            self.update_data_table()
+
+        else:
+            self.progress_var.set(0)
+            self.update_status("数据加载失败")
+            self.log_message(message)
+            messagebox.showerror("错误", message)
 
     def start_analysis(self):
-        # 更新配置参数
-        self.config.WINDOW_BEFORE = self.window_before_var.get()
-        self.config.WINDOW_AFTER = self.window_after_var.get()
-        self.config.TEST_SIZE = self.test_size_var.get()
-        self.config.RF_N_ESTIMATORS = self.rf_var.get()
-        self.config.GB_N_ESTIMATORS = self.gb_var.get()
-        self.config.SCADA_DATA_PATH = self.scada_path
-        self.config.FAULT_DATA_PATH = self.fault_path
+        """开始完整分析"""
+        if self.raw_data is None:
+            messagebox.showwarning("警告", "请先加载数据")
+            return
 
-        # 禁用开始按钮
-        self.start_button.config(state=tk.DISABLED)
+        self.update_status("正在进行数据分析...")
+        self.progress_var.set(40)
 
-        # 重置状态
-        self.processed_data = None
-        self.model_results = None
-        self.analysis_started = True
-        self.analysis_complete = False
-        self.error_occurred = False
-        self.error_message = ""
-        self.log_output = ""
-        self.update_log_display()
-        self.status_var.set("分析中...")
-        self.log("分析启动中...")
+        def analysis_worker():
+            try:
+                # 数据预处理
+                self.log_message("开始数据预处理...")
+                labeled_data, fault_distribution = preprocess_data(
+                    self.raw_data['scada'],
+                    self.raw_data['fault'],
+                    self.logger
+                )
 
-        # 创建分析线程
-        analysis_thread = threading.Thread(target=self.run_analysis, daemon=True)
-        analysis_thread.start()
+                self.root.after(0, lambda: self.progress_var.set(50))
 
-        # 开始进度监控
-        self.monitor_analysis()
+                # 特征工程
+                self.log_message("开始特征工程...")
+                features = extract_features(labeled_data)
+                x, y, le = prepare_features(features)
 
-    def run_analysis(self, scada_data, fault_data, labeled_data, fault_distribution,
-                     best_model, best_model_name, best_accuracy, accuracies, y_pred
-                     ):
-        try:
-            # 步骤1: 加载数据
-            self.log("步骤 1/4: 加载数据...")
-            self.log(f"SCADA数据路径: {self.scada_path}")
-            self.log(f"故障数据路径: {self.fault_path}")
-            self.log(f"加载了 {len(scada_data)} 条SCADA记录和 {len(fault_data)} 条故障记录")
-            self.log("数据加载成功!")
-            self.log("\n步骤 2/4: 数据预处理...")
-            self.processed_data = (labeled_data, fault_distribution)
+                self.root.after(0, lambda: self.progress_var.set(60))
 
-            self.log(f"预处理后的数据记录数: {len(labeled_data)}")
-            self.log(f"检测到的故障类型数: {len(fault_distribution)}")
-            self.log("数据预处理成功!")
-            self.log("\n步骤 3/4: 模型训练...")
-            numeric_cols = labeled_data.select_dtypes(include=np.number).columns
-            features = [col for col in numeric_cols if col != 'Fault']
-            x = labeled_data[features]
-            y = labeled_data['Fault']
+                # 数据分割
+                self.log_message("分割数据集...")
+                x_train, x_test, y_train, y_test = split_data(x, y)
 
-            # 拆分数据集
-            x_train, x_test, y_train, y_test = train_test_split(
-                x, y,
-                test_size=self.config.TEST_SIZE,
-                random_state=42
-            )
+                # 特征选择
+                x_train_selected, x_test_selected, scaler, selector, important_features = select_features(
+                    x_train, y_train, x_test
+                )
 
-            self.model_results = (best_model, best_model_name, best_accuracy, accuracies, y_test, y_pred)
+                self.root.after(0, lambda: self.progress_var.set(80))
 
-            self.log("\n模型训练成功!")
-            if hasattr(accuracies, 'keys'):
-                model_names = ", ".join(str(name) for name in accuracies.keys())
-                self.log(f"使用的模型: {model_names}")
-            else:
-                self.log("使用的模型信息不可用")
+                # 模型训练
+                self.log_message("开始模型训练...")
+                best_model, best_model_name, best_accuracy, accuracies, y_test, y_pred = train_models(
+                    x_train_selected, y_train, x_test_selected, y_test
+                )
 
-            self.log(f"最佳模型: {best_model_name}, 准确率: {best_accuracy:.4f}")
+                self.root.after(0, lambda: self.progress_var.set(90))
 
-            # 步骤4: 可视化
-            self.log("\n步骤 4/4: 生成可视化图表...")
+                # 生成图表
+                self.log_message("生成可视化图表...")
+                graphics_drawing(
+                    labeled_data, fault_distribution, best_model,
+                    best_model_name, accuracies, y_test, y_pred
+                )
 
-            # 创建子线程进行可视化
-            self.log("启动可视化线程...")
-            graphics_thread = threading.Thread(
-                target=self.run_visualization,
-                args=(labeled_data, fault_distribution, best_model, best_model_name, accuracies, y_test, y_pred),
-                daemon=True
-            )
-            graphics_thread.start()
+                # 保存结果
+                self.processed_data = labeled_data
+                self.features_data = features
+                self.model_results = {
+                    'best_model': best_model,
+                    'best_model_name': best_model_name,
+                    'best_accuracy': best_accuracy,
+                    'accuracies': accuracies,
+                    'important_features': important_features,
+                    'fault_distribution': fault_distribution,
+                    'y_test': y_test,
+                    'y_pred': y_pred
+                }
 
-            graphics_thread.join(timeout=600)
-            if graphics_thread.is_alive():
-                self.log("警告: 可视化任务超时")
+                self.analysis_complete = True
+                self.root.after(0, lambda: self.on_analysis_complete(True, "分析完成"))
 
-            self.analysis_complete = True
-            self.log("分析完成!")
+            except Exception as e:
+                self.root.after(0, lambda: self.on_analysis_complete(False, f"分析失败: {str(e)}"))
 
-        except Exception as e:
-            self.error_occurred = True
-            self.error_message = str(e)
-            self.log(f"\n⚠️ 错误: {str(e)}")
-            self.log(traceback.format_exc())
+        thread = threading.Thread(target=analysis_worker, daemon=True)
+        thread.start()
 
-    def run_visualization(self, labeled_data, fault_distribution, best_model, best_model_name, accuracies, y_test, y_pred):
-        try:
-            self.log("开始生成可视化图表...")
-            self.log(f"图表将保存到: {self.images_dir}")
+    def on_analysis_complete(self, success, message):
+        """分析完成回调"""
+        if success:
+            self.progress_var.set(100)
+            self.update_status("分析完成")
+            self.log_message(message)
 
-            # 确保保存目录存在
-            os.makedirs(self.images_dir, exist_ok=True)
+            # 更新结果显示
+            self.update_results_display()
 
-            # 保存当前工作目录
-            original_dir = os.getcwd()
+            # 自动显示第一个图表
+            self.plot_combo.current(0)
+            self.show_selected_plot()
 
-            # 切换到临时目录，因为plot.py可能只保存到当前目录
-            os.chdir(self.temp_dir)
+            messagebox.showinfo("成功", "数据分析完成！")
 
-            graphics_drawing(
-                labeled_data,
-                fault_distribution,
-                best_model,
-                best_model_name,
-                accuracies,
-                y_test,
-                y_pred
-            )
-
-            os.chdir(original_dir)
-
-            if os.path.exists(self.images_dir):
-                image_files = [f for f in os.listdir(self.images_dir) if f.endswith('.png')]
-                self.log(f"生成图表: {', '.join(image_files)}")
-            else:
-                self.log("警告: 图表目录不存在")
-
-            self.log("可视化完成!")
-
-        except Exception as e:
-            self.log(f"可视化过程中发生错误: {str(e)}")
-            self.log(traceback.format_exc())
-
-    def monitor_analysis(self):
-        if self.analysis_complete or self.error_occurred:
-            self.analysis_started = False
-            self.start_button.config(state=tk.NORMAL)
-
-            if self.analysis_complete:
-                self.status_var.set("分析完成!")
-                self.download_button.config(state=tk.NORMAL)
-                self.update_summary()
-                self.show_plot("故障分布")  # 默认显示第一个图表
-            elif self.error_occurred:
-                self.status_var.set(f"分析失败: {self.error_message}")
         else:
-            # 继续监控
-            self.root.after(500, self.monitor_analysis)
+            self.progress_var.set(0)
+            self.update_status("分析失败")
+            self.log_message(message)
+            messagebox.showerror("错误", message)
 
-    def update_summary(self):
-        if not self.processed_data or not self.model_results:
+    def update_data_overview(self, text):
+        """更新数据概览"""
+        self.data_info.config(state=tk.NORMAL)
+        self.data_info.delete(1.0, tk.END)
+        self.data_info.insert(tk.END, text)
+        self.data_info.config(state=tk.DISABLED)
+
+    def update_data_table(self):
+        """更新数据表格"""
+        self.table_combo.current(0)
+        self.on_table_select(None)
+
+    def update_results_display(self):
+        """更新结果显示"""
+        if not self.model_results:
             return
 
-        # 解包模型结果
-        try:
-            labeled_data, fault_distribution = self.processed_data
-            best_model, best_model_name, best_accuracy, accuracies, y_test, y_pred = self.model_results
+        # 性能信息
+        perf_text = f"""最佳模型: {self.model_results['best_model_name']}
+准确率: {self.model_results['best_accuracy']:.4f}
 
-            # 清除旧的摘要信息
-            for frame in [self.data_frame, self.model_frame, self.fault_frame]:
-                for widget in frame.winfo_children():
-                    widget.destroy()
+所有模型准确率:
+"""
+        for model, acc in self.model_results['accuracies'].items():
+            perf_text += f"  {model}: {acc:.4f}\n"
 
-            # 数据摘要
-            ttk.Label(self.data_frame, text=f"总样本数: {len(labeled_data)}").pack(anchor=tk.W, padx=10, pady=5)
-            ttk.Label(self.data_frame, text=f"特征数量: {len(labeled_data.columns) - 2}").pack(anchor=tk.W, padx=10,
-                                                                                               pady=5)
-            ttk.Label(self.data_frame, text=f"故障类型数: {len(fault_distribution)}").pack(anchor=tk.W, padx=10, pady=5)
+        self.performance_info.config(state=tk.NORMAL)
+        self.performance_info.delete(1.0, tk.END)
+        self.performance_info.insert(tk.END, perf_text)
+        self.performance_info.config(state=tk.DISABLED)
 
-            # 模型性能
-            ttk.Label(self.model_frame, text=f"最佳模型: {best_model_name}").pack(anchor=tk.W, padx=10, pady=5)
-            ttk.Label(self.model_frame, text=f"准确率: {best_accuracy:.4f}").pack(anchor=tk.W, padx=10, pady=5)
-            ttk.Label(self.model_frame, text=f"测试集大小: {len(y_test)}").pack(anchor=tk.W, padx=10, pady=5)
+        # 特征重要性
+        feat_text = "重要特征排序:\n\n"
+        for i, feat in enumerate(self.model_results['important_features'][:10], 1):
+            feat_text += f"{i:2d}. {feat}\n"
 
-            # 显示所有模型准确率
-            if hasattr(accuracies, 'items'):
-                for model_name, accuracy in accuracies.items():
-                    ttk.Label(self.model_frame, text=f"{model_name}准确率: {accuracy:.4f}").pack(anchor=tk.W, padx=10,
-                                                                                                 pady=2)
-            else:
-                ttk.Label(self.model_frame, text="无准确率数据").pack(anchor=tk.W, padx=10, pady=2)
+        self.features_info.config(state=tk.NORMAL)
+        self.features_info.delete(1.0, tk.END)
+        self.features_info.insert(tk.END, feat_text)
+        self.features_info.config(state=tk.DISABLED)
 
-            # 故障分布
-            for fault, count in fault_distribution.items():
-                ttk.Label(self.fault_frame, text=f"{fault}: {count}").pack(anchor=tk.W, padx=10, pady=2)
+    def on_table_select(self, event):
+        """表格选择事件"""
+        selection = self.table_var.get()
 
-        except Exception as e:
-            self.log(f"更新摘要时出错: {str(e)}")
+        if selection == "原始数据" and self.raw_data:
+            self.display_dataframe(self.raw_data['scada'])
+        elif selection == "预处理数据" and self.processed_data is not None:
+            self.display_dataframe(self.processed_data)
+        elif selection == "特征数据" and self.features_data is not None:
+            self.display_dataframe(self.features_data)
 
-    def show_plot(self, plot_name):
-        if not self.analysis_complete or not self.processed_data or not self.model_results:
+    def display_dataframe(self, df):
+        """在表格中显示DataFrame"""
+        # 清除现有数据
+        for item in self.data_tree.get_children():
+            self.data_tree.delete(item)
+
+        if df is None or df.empty:
             return
+
+        # 更新列标题
+        columns = ['索引'] + list(df.columns)
+        self.data_tree['columns'] = columns
+
+        for col in columns:
+            self.data_tree.heading(col, text=col)
+            self.data_tree.column(col, width=120, anchor=tk.W)
+
+        # 插入数据（只显示前100行）
+        for i, (index, row) in enumerate(df.head(100).iterrows()):
+            values = [str(index)] + [str(value) for value in row.values]
+            self.data_tree.insert('', tk.END, values=values)
+
+    def on_plot_select(self, event):
+        """图表选择事件"""
+        self.show_selected_plot()
+
+    def show_selected_plot(self):
+        """显示选定的图表"""
+        if not self.analysis_complete:
+            messagebox.showwarning("警告", "请先完成数据分析")
+            return
+
+        plot_type = self.plot_var.get()
 
         # 清除当前图表
         self.fig.clear()
 
         try:
-            # 获取模型名称（用于特征重要性文件名）
-            if hasattr(self, 'model_results') and len(self.model_results) > 1:
-                best_model_name = self.model_results[1].replace(" ", "_").lower()
-            else:
-                best_model_name = "unknown_model"
+            if plot_type == "故障分布图":
+                self.plot_fault_distribution()
+            elif plot_type == "特征分布图":
+                self.plot_feature_distribution()
+            elif plot_type == "模型准确率对比":
+                self.plot_model_accuracies()
+            elif plot_type == "混淆矩阵":
+                self.plot_confusion_matrix()
+            elif plot_type == "特征重要性":
+                self.plot_feature_importance()
+            elif plot_type == "时间序列特征":
+                self.plot_time_series()
 
-            # 映射图表名称到实际文件名
-            plot_mapping = {
-                "故障分布": "fault_distribution.png",
-                "特征分布": "feature_distribution.png",
-                "模型准确率对比": "model_accuracies.png",
-                "特征重要性": f"{best_model_name}_feature_importance.png",
-                "特征相关性": "feature_correlation.png",
-                "时间序列特征": "time_series_features.png",
-                "混淆矩阵": "confusion_matrix.png",
-                "特征随时间变化": "classification_comparison.png"
-            }
-
-            filename = plot_mapping.get(plot_name)
-            if not filename:
-                raise ValueError(f"未知的图表名称: {plot_name}")
-
-            img_path = os.path.join(self.images_dir, filename)
-            self.log(f"尝试加载图表文件: {img_path}")
-
-            if os.path.exists(img_path):
-                img = Image.open(img_path)
-                ax = self.fig.add_subplot(111)
-                ax.imshow(img)
-                ax.axis('off')
-                ax.set_title(plot_name)
-                self.log(f"显示图表: {plot_name}")
-                self.canvas.draw()
-            else:
-                # 尝试查找替换文件名（处理不同拼写）
-                alt_filenames = [
-                    f"feature_importance_{best_model_name}.png",
-                    f"feature_importance.png",
-                    f"{plot_name.lower().replace(' ', '_')}.png"
-                ]
-
-                # 查找存在的文件
-                found = False
-                for alt in alt_filenames:
-                    alt_path = os.path.join(self.images_dir, alt)
-                    if os.path.exists(alt_path):
-                        img = Image.open(alt_path)
-                        ax = self.fig.add_subplot(111)
-                        ax.imshow(img)
-                        ax.axis('off')
-                        ax.set_title(plot_name)
-                        self.log(f"找到备用图表文件: {alt_path}")
-                        self.canvas.draw()
-                        found = True
-                        break
-
-                if not found:
-                    # 找不到任何匹配文件
-                    ax = self.fig.add_subplot(111)
-                    ax.text(0.5, 0.5, f"未找到 {plot_name} 图表文件\n路径: {img_path}\n\n尝试了以下文件:\n" +
-                            "\n".join([alt for alt in alt_filenames]),
-                            horizontalalignment='center', verticalalignment='center',
-                            transform=ax.transAxes, fontsize=10)
-                    self.log(f"⚠️ 未找到图表文件: {img_path}")
-                    self.log(f"尝试了以下备选文件名: {alt_filenames}")
-                    self.log(f"实际目录内容: {os.listdir(self.images_dir)}")
-                    self.canvas.draw()
-
-        except Exception as e:
-            ax = self.fig.add_subplot(111)
-            ax.text(0.5, 0.5, f"显示图表时出错: {str(e)}\n{traceback.format_exc()}",
-                    horizontalalignment='center', verticalalignment='center',
-                    transform=ax.transAxes, fontsize=10)
-            self.log(f"显示图表时出错: {str(e)}")
-            self.log(traceback.format_exc())
             self.canvas.draw()
 
-    def show_selected_plot(self, event=None):
-        """处理图表选择事件"""
-        if hasattr(self, 'plot_var'):
-            plot_name = self.plot_var.get()
-            if plot_name:
-                self.show_plot(plot_name)
+        except Exception as e:
+            self.log_message(f"图表显示错误: {str(e)}")
+            # 显示错误信息
+            ax = self.fig.add_subplot(111)
+            ax.text(0.5, 0.5, f"图表显示错误:\n{str(e)}",
+                    ha='center', va='center', transform=ax.transAxes)
+            self.canvas.draw()
+
+    def plot_fault_distribution(self):
+        """绘制故障分布图"""
+        ax = self.fig.add_subplot(111)
+        fault_dist = self.model_results['fault_distribution']
+
+        bars = ax.bar(range(len(fault_dist)), fault_dist.values, color='skyblue')
+        ax.set_xlabel('故障类型')
+        ax.set_ylabel('样本数量')
+        ax.set_title('故障分布')
+        ax.set_xticks(range(len(fault_dist)))
+        ax.set_xticklabels(fault_dist.index, rotation=45)
+
+        # 添加数值标签
+        for bar, value in zip(bars, fault_dist.values):
+            height = bar.get_height()
+            ax.text(bar.get_x() + bar.get_width() / 2., height + height * 0.01,
+                    str(value), ha='center', va='bottom')
+
+        self.fig.tight_layout()
+
+    def plot_feature_distribution(self):
+        """绘制特征分布图"""
+        if self.processed_data is None:
+            return
+
+        numeric_cols = self.processed_data.select_dtypes(include=[np.number]).columns[:6]
+
+        for i, col in enumerate(numeric_cols):
+            ax = self.fig.add_subplot(2, 3, i + 1)
+            ax.hist(self.processed_data[col].dropna(), bins=30, alpha=0.7, color='lightblue')
+            ax.set_title(f'{col}分布')
+            ax.set_xlabel(col)
+            ax.set_ylabel('频次')
+            ax.grid(True, alpha=0.3)
+
+        self.fig.tight_layout()
+
+    def plot_model_accuracies(self):
+        """绘制模型准确率对比"""
+        ax = self.fig.add_subplot(111)
+        accuracies = self.model_results['accuracies']
+
+        models = list(accuracies.keys())
+        values = list(accuracies.values())
+
+        bars = ax.bar(models, values, color=['#FF9999', '#66B2FF', '#99FF99'])
+        ax.set_ylabel('准确率')
+        ax.set_title('模型准确率对比')
+        ax.set_ylim(0, 1)
+
+        # 添加数值标签
+        for bar, value in zip(bars, values):
+            height = bar.get_height()
+            ax.text(bar.get_x() + bar.get_width() / 2., height + 0.01,
+                    f'{value:.3f}', ha='center', va='bottom')
+
+        self.fig.tight_layout()
+
+    def plot_confusion_matrix(self):
+        """绘制混淆矩阵"""
+        ax = self.fig.add_subplot(111)
+
+        y_test = self.model_results['y_test']
+        y_pred = self.model_results['y_pred']
+
+        cm = confusion_matrix(y_test, y_pred)
+
+        # 使用seaborn绘制热力图
+        sns.heatmap(cm, annot=True, fmt='d', cmap='Blues', ax=ax)
+        ax.set_ylabel('真实标签')
+        ax.set_xlabel('预测标签')
+        ax.set_title('混淆矩阵')
+
+        self.fig.tight_layout()
+
+    def plot_feature_importance(self):
+        """绘制特征重要性"""
+        ax = self.fig.add_subplot(111)
+
+        # 获取特征重要性（如果模型支持）
+        model = self.model_results['best_model']
+        if hasattr(model, 'feature_importances_'):
+            importances = model.feature_importances_
+            features = self.model_results['important_features'][:10]  # 前10个重要特征
+
+            y_pos = np.arange(len(features))
+            ax.barh(y_pos, importances[:len(features)], color='lightcoral')
+            ax.set_yticks(y_pos)
+            ax.set_yticklabels(features)
+            ax.set_xlabel('重要性')
+            ax.set_title('特征重要性')
         else:
-            messagebox.showwarning("功能未就绪", "图表选择功能尚未准备就绪")
+            ax.text(0.5, 0.5, '当前模型不支持特征重要性显示',
+                    ha='center', va='center', transform=ax.transAxes)
+
+        self.fig.tight_layout()
+
+    def plot_time_series(self):
+        """绘制时间序列特征"""
+        ax = self.fig.add_subplot(111)
+
+        if self.processed_data is None or 'DateTime' not in self.processed_data.columns:
+            ax.text(0.5, 0.5, '无时间序列数据',
+                    ha='center', va='center', transform=ax.transAxes)
+            return
+
+        # 取前1000个数据点
+        data_sample = self.processed_data.head(1000)
+        numeric_cols = data_sample.select_dtypes(include=[np.number]).columns[:3]
+
+        for col in numeric_cols:
+            ax.plot(data_sample['DateTime'], data_sample[col], label=col, alpha=0.7)
+
+        ax.set_xlabel('时间')
+        ax.set_ylabel('特征值')
+        ax.set_title('时间序列特征变化')
+        ax.legend()
+        ax.grid(True, alpha=0.3)
+
+        self.fig.tight_layout()
+
+    def refresh_plots(self):
+        """刷新图表"""
+        if self.analysis_complete:
+            self.show_selected_plot()
+            self.log_message("图表已刷新")
+        else:
+            messagebox.showwarning("警告", "请先完成数据分析")
+
+    def export_results(self):
+        """导出结果"""
+        if not self.analysis_complete:
+            messagebox.showwarning("警告", "请先完成数据分析")
+            return
+
+        try:
+            from tkinter import filedialog
+            filename = filedialog.asksaveasfilename(
+                defaultextension=".csv",
+                filetypes=[("CSV文件", "*.csv"), ("Excel文件", "*.xlsx"), ("所有文件", "*.*")]
+            )
+
+            if filename:
+                if filename.endswith('.csv'):
+                    self.processed_data.to_csv(filename, index=False)
+                elif filename.endswith('.xlsx'):
+                    self.processed_data.to_excel(filename, index=False)
+
+                self.log_message(f"结果已导出到: {filename}")
+                messagebox.showinfo("成功", f"结果已导出到:\n{filename}")
+
+        except Exception as e:
+            self.log_message(f"导出失败: {str(e)}")
+            messagebox.showerror("错误", f"导出失败: {str(e)}")
+
+    def update_status(self, message):
+        """更新状态栏"""
+        self.status_var.set(message)
+
+    def log_message(self, message):
+        """记录日志消息"""
+        timestamp = datetime.now().strftime("%H:%M:%S")
+        formatted_message = f"[{timestamp}] {message}"
+
+        if hasattr(self, 'log_display'):
+            self.log_display.config(state=tk.NORMAL)
+            self.log_display.insert(tk.END, formatted_message + '\n')
+            self.log_display.see(tk.END)
+            self.log_display.config(state=tk.DISABLED)
+
+        if hasattr(self, 'logger'):
+            self.logger.info(message)
+
+        # 添加到队列
+        self.log_queue.put(formatted_message)
+
+    def process_log_queue(self):
+        """处理日志队列"""
+        try:
+            while not self.log_queue.empty():
+                self.log_queue.get_nowait()
+        except:
+            pass
+
+        # 继续处理
+        self.root.after(100, self.process_log_queue)
+
+    def cleanup(self):
+        """清理资源"""
+        if hasattr(self, 'temp_dir') and os.path.exists(self.temp_dir):
+            shutil.rmtree(self.temp_dir)
+
+        self.log_message("仪表盘已关闭")
+
+    def run(self):
+        """运行仪表盘"""
+        if self.standalone:
+            self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
+            self.root.mainloop()
 
     def on_closing(self):
-        """关闭应用程序时的清理工作"""
-        self.delete_temp_dir()
-        self.root.destroy()
+        """关闭事件处理"""
+        self.cleanup()
+        if self.standalone:
+            self.root.destroy()
 
-# 主程序
-def app_start():
-    root_one = tk.Tk()
-    app = FaultDiagnosisApp(root_one)
-    root_one.protocol("WM_DELETE_WINDOW", app.on_closing)
-    root_one.mainloop()
+
+# 集成函数，供main.py调用
+def create_dashboard(master=None):
+    """创建并返回仪表盘实例"""
+    return DataDashboard(master)
+
+
+def start_dashboard_standalone():
+    """独立启动仪表盘"""
+    dashboard = DataDashboard()
+    dashboard.run()
+
+
+# 为了向后兼容，保留原有的类名
+FaultDiagnosisApp = DataDashboard
+
+if __name__ == "__main__":
+    start_dashboard_standalone()

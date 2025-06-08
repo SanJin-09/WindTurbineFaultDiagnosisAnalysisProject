@@ -15,7 +15,7 @@ from src.main.analysis.data_preprocessing import load_data, preprocess_data
 from src.main.analysis.feature_engineering import extract_features, prepare_features, select_features
 from src.main.analysis.model_training import split_data, train_models
 from src.main.analysis.plot import graphics_drawing
-from src.main.analysis.dashboard import FaultDiagnosisApp
+from src.main.analysis.dashboard import DataDashboard
 from src.main.utils import save_model, print_summary
 
 warnings.filterwarnings('ignore')
@@ -92,28 +92,32 @@ def run_analysis():
         print(f"分析错误: {str(e)}")
         logger.info("=== 风力涡轮机故障诊断分析异常终止 ===")
         return False
-def start_gui():
+
+
+def start_dashboard():
     """启动图形界面"""
     print("正在启动风力涡轮机故障诊断系统...")
 
     try:
-        import tkinter as tk
-        root = tk.Tk()
-        app = FaultDiagnosisApp(root)
-        root.protocol("WM_DELETE_WINDOW", app.on_closing)
-        print("系统启动成功！")
-        root.mainloop()
+        # 创建仪表盘实例
+        dashboard = DataDashboard()
+        print("仪表盘启动成功！")
+
+        # 运行仪表盘
+        dashboard.run()
         return True
+
     except Exception as e:
-        print(f"GUI启动失败: {e}")
+        print(f"仪表盘启动失败: {e}")
         return False
+
 
 def main():
     """主程序入口"""
     print("风力涡轮机故障诊断系统")
     print("=" * 50)
     print("请选择运行模式:")
-    print("1. 启动图形界面 (推荐)")
+    print("1. 启动图形界面 ")
     print("2. 运行完整分析流程")
     print("3. 先运行分析，后启动界面")
     print("4. 退出")
@@ -122,7 +126,7 @@ def main():
         choice = input("请输入选择 (1-4): ").strip()
 
         if choice == '1':
-            start_gui()
+            start_dashboard()
 
         elif choice == '2':
             success = run_analysis()
@@ -139,7 +143,7 @@ def main():
 
             if success:
                 print("分析完成！正在启动图形界面...")
-                start_gui()
+                start_dashboard()
             else:
                 print("分析失败，无法启动界面。")
                 input("按回车键退出...")
@@ -150,7 +154,7 @@ def main():
 
         else:
             print("无效选择，启动默认图形界面...")
-            start_gui()
+            start_dashboard()
 
     except KeyboardInterrupt:
         print("\n程序被用户中断。")
